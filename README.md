@@ -48,5 +48,5 @@ O produto será uma aplicação web interativa para:
 
 O projeto contemplará uma arquitetura Lambda em nuvem, com caminhos de processamento batch e incremental, camadas Bronze, Silver e Gold, modelagem Star Schema e Wide Table, além de CI/CD e infraestrutura como código.
 
-**Stack proposta:** AWS, Amazon S3, Python, Pandas, PySpark, DuckDB, scikit-learn, Streamlit, GitHub Actions e Terraform.
+**Stack proposta:** .
 
