@@ -1,14 +1,14 @@
 
-name: BarrioIQ - CI
+name: BarrioIQ CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
 
   pull_request:
-    branches:
-      - main
+    branches: [main]
+
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,14 +16,13 @@ permissions:
 jobs:
   python-tests:
     name: Testes Python
-
     runs-on: ubuntu-latest
 
     steps:
       - name: Baixar codigo
         uses: actions/checkout@v4
 
-      - name: Preparar Python
+      - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
