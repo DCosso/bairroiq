@@ -1,0 +1,14 @@
+
+name: Diagnostico GitHub Actions
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Testar GitHub Actions
+        run: echo "GitHub Actions funcionando!"
