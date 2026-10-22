@@ -8,13 +8,13 @@ terraform {
       version = ">= 1.115.0, < 2.0.0"
     }
   }
-cloud {
-  organization = "barrioiq-mba"
+  cloud {
+    organization = "barrioiq-mba"
 
-  workspaces {
-    name = "barrioiq-databricks-dev"
+    workspaces {
+      name = "barrioiq-databricks-dev"
+    }
   }
-}
 }
 
 provider "databricks" {}
