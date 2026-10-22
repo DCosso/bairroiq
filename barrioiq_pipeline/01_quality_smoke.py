@@ -3,6 +3,12 @@
 
 import json
 from datetime import datetime, timezone
+import time
+from uuid import uuid4
+from pyspark.sql.types import TimestampType
+
+dq_run_id = str(uuid4())
+dq_started_at = time.perf_counter()
 
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
@@ -12,6 +18,7 @@ from pyspark.sql.types import (
     LongType,
     DoubleType,
 )
+
 
 # COMMAND ----------
 
@@ -175,4 +182,64 @@ print(json.dumps(
     ensure_ascii=False
 ))
 
+
+# COMMAND ----------
+
+# 7. AUDITORIA PERSISTENTE NO UNITY CATALOG
+
+tabela_auditoria = (
+    "workspace.observability.data_quality_runs"
+)
+
+audit_schema = StructType([
+    StructField("run_id", StringType(), False),
+    StructField("executed_at", TimestampType(), False),
+    StructField("pipeline", StringType(), False),
+    StructField("status", StringType(), False),
+    StructField("bronze_records", LongType(), True),
+    StructField("bronze_missing_keys", LongType(), True),
+    StructField("bronze_duplicate_keys", LongType(), True),
+    StructField("silver_records", LongType(), True),
+    StructField("gold_districts", LongType(), True),
+    StructField("silver_population", LongType(), True),
+    StructField("gold_population", LongType(), True),
+    StructField("duration_seconds", DoubleType(), True),
+    StructField("error_message", StringType(), True),
+])
+
+registro = {
+    "run_id": dq_run_id,
+    "executed_at": datetime.now(timezone.utc),
+    "pipeline": "barrioiq_quality_smoke",
+    "status": "SUCCESS",
+    "bronze_records": bronze_total,
+    "bronze_missing_keys": bronze_nulos,
+    "bronze_duplicate_keys": bronze_duplicados,
+    "silver_records": silver_total,
+    "gold_districts": gold.count(),
+    "silver_population": int(silver_populacao),
+    "gold_population": int(gold_totais["populacao"]),
+    "duration_seconds": float(
+        time.perf_counter() - dq_started_at
+    ),
+    "error_message": None,
+}
+
+df_auditoria = spark.createDataFrame(
+    [registro],
+    schema=audit_schema
+)
+
+# Adiciona uma linha sem sobrescrever o historico
+(
+    df_auditoria.write
+    .format("delta")
+    .mode("append")
+    .saveAsTable(tabela_auditoria)
+)
+
+print("AUDIT_WRITE_SUCCESS")
+print("Run ID:", dq_run_id)
+print("Tabela:", tabela_auditoria)
 print("JOB_BARRIOIQ_DQ_SUCCESS")
+
