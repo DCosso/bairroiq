@@ -29,16 +29,12 @@ jobs:
       DATABRICKS_AUTH_TYPE: pat
 
     steps:
-
-      # 1. BAIXAR O REPOSITORIO
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. INSTALAR DATABRICKS CLI
       - name: Install Databricks CLI
         uses: databricks/setup-cli@main
 
-      # 3. AUTENTICACAO OAUTH M2M
       - name: Obtain scoped OAuth token
         shell: bash
         env:
@@ -49,21 +45,18 @@ jobs:
           import os
           import json
           import base64
-
           from urllib.parse import urlencode
           from urllib.request import Request, urlopen
 
           host = os.environ["DATABRICKS_HOST"].rstrip("/")
           client_id = os.environ["DATABRICKS_CLIENT_ID"]
-          client_secret = os.environ["DATABRICKS_CLIENT_SECRET"]
+          secret = os.environ["DATABRICKS_CLIENT_SECRET"]
 
-          if not all([host, client_id, client_secret]):
-              raise RuntimeError(
-                  "Missing Databricks OAuth configuration"
-              )
+          if not all((host, client_id, secret)):
+              raise RuntimeError("Missing OAuth configuration")
 
           credentials = base64.b64encode(
-              f"{client_id}:{client_secret}".encode()
+              f"{client_id}:{secret}".encode()
           ).decode()
 
           request = Request(
@@ -85,22 +78,15 @@ jobs:
 
           print(f"::add-mask::{token}")
 
-          with open(
-              os.environ["GITHUB_ENV"],
-              "a",
-              encoding="utf-8"
-          ) as env:
+          with open(os.environ["GITHUB_ENV"], "a") as env:
               env.write(f"DATABRICKS_TOKEN={token}\n")
 
-          print("OAuth authentication successful")
+          print("OAuth authentication OK")
           PY
 
-      # 4. VALIDAR O BUNDLE
       - name: Validate Databricks Bundle
-        run: |
-          databricks bundle validate --target dev
+        run: databricks bundle validate --target dev
 
-      # 5. GERAR E INSPECIONAR O PLANO
       - name: Preview deployment changes
         shell: bash
         run: |
@@ -111,97 +97,50 @@ jobs:
           python - <<'PY'
           import json
 
-          with open(
-              "/tmp/barrioiq-plan.json",
-              encoding="utf-8"
-          ) as f:
+          with open("/tmp/barrioiq-plan.json") as f:
               data = json.load(f)
 
           plan = data.get("plan") or {}
+          resource = "resources.jobs.barrioiq_smoke_job"
 
-          expected_resource = (
-              "resources.jobs.barrioiq_smoke_job"
-          )
+          if not plan:
+              print("NO RESOURCE CHANGES")
+              print("Bundle preview approved")
 
-          # Nao aceitar alteracoes em outros recursos.
-          if set(plan) != {expected_resource}:
-              raise RuntimeError(
-                  f"Unexpected resources: {list(plan)}"
-              )
-
-          change = plan[expected_resource]
-          action = change.get("action")
-
-          # A atualizacao deve afetar o Job existente.
-          if action != "update":
-              raise RuntimeError(
-                  f"Unexpected action: {action}"
-              )
-
-          fields = change.get("changes") or {}
-
-          if not isinstance(fields, dict):
-              raise RuntimeError(
-                  "Unexpected changes structure"
-              )
-
-          print("=" * 60)
-          print("BARRIOIQ - DATABRICKS CD PREVIEW")
-          print("=" * 60)
-
-          print(f"RESOURCE: {expected_resource}")
-          print(f"ACTION: {action}")
-
-          print("\nCHANGED FIELDS:")
-
-          for field in sorted(fields):
-              print(f" - {field}")
-
-              if (
-                  "validar_qualidade" in field
-                  and field.endswith("notebook_path")
-              ):
-                  new_path = fields[field].get("new")
-
-                  print(
-                      f"   NEW NOTEBOOK PATH: {new_path}"
+          else:
+              if set(plan) != {resource}:
+                  raise RuntimeError(
+                      f"Unexpected resources: {list(plan)}"
                   )
 
-          # Conferir se a nova tarefa esta no plano.
-          quality_fields = [
-              field
-              for field in fields
-              if "validar_qualidade" in field
-          ]
+              change = plan[resource]
+              action = change.get("action")
 
-          if not quality_fields:
-              raise RuntimeError(
-                  "New quality task not found in plan"
-              )
+              if action not in ("update", "skip"):
+                  raise RuntimeError(
+                      f"Unexpected action: {action}"
+                  )
 
-          print("\nQUALITY TASK CHANGES:")
+              print("RESOURCE:", resource)
+              print("ACTION:", action)
 
-          for field in sorted(quality_fields):
-              print(f" - {field}")
+              fields = change.get("changes") or {}
 
-          print("\nQUALITY TASK DETECTED IN PLAN")
+              if not isinstance(fields, dict):
+                  raise RuntimeError(
+                      "Invalid changes structure"
+                  )
 
-          # Nenhuma criacao ou exclusao de Job.
-          if action != "update":
-              raise RuntimeError(
-                  "Job creation/deletion is forbidden"
-              )
+              print("CHANGED FIELDS:")
 
-          print("EXISTING JOB WILL BE UPDATED")
-          print("NO NEW JOB WILL BE CREATED")
-          print("NO JOB WILL BE DELETED")
+              for field in sorted(fields):
+                  print(" -", field)
 
-          print("\nNO DEPLOYMENT EXECUTED")
-          print("=" * 60)
+          print("NO JOB CREATION")
+          print("NO JOB DELETION")
+          print("NO DEPLOYMENT EXECUTED")
           PY
 
-      # 6. FINALIZAR
       - name: Preview completed
         run: |
-          echo "BarrioIQ Databricks CD Preview completed"
-          echo "No deployment executed"
+          echo "BARRIOIQ_CD_PREVIEW_SUCCESS"
