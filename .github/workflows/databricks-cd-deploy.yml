@@ -1,7 +1,6 @@
 
 name: BarrioIQ - Databricks CD Deploy
 
-
 on:
   push:
     branches:
@@ -11,7 +10,6 @@ on:
       - ".github/workflows/databricks-cd-deploy.yml"
 
   workflow_dispatch:
-
 
 permissions:
   contents: read
@@ -36,12 +34,14 @@ jobs:
       BARRIOIQ_JOB_ID: ${{ vars.BARRIOIQ_EXISTING_JOB_ID }}
 
     steps:
+      # 1. Preparar o ambiente
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install Databricks CLI
         uses: databricks/setup-cli@main
 
+      # 2. Autenticar com a Service Principal
       - name: Obtain scoped OAuth token
         shell: bash
         env:
@@ -74,8 +74,7 @@ jobs:
               }).encode(),
               headers={
                   "Authorization": f"Basic {credentials}",
-                  "Content-Type":
-                      "application/x-www-form-urlencoded"
+                  "Content-Type": "application/x-www-form-urlencoded"
               },
               method="POST"
           )
@@ -91,6 +90,7 @@ jobs:
           print("OAuth authentication OK")
           PY
 
+      # 3. Confirmar que o Job existente continua correto
       - name: Verify existing Job
         shell: bash
         run: |
@@ -109,26 +109,32 @@ jobs:
               job = json.load(f)
 
           name = job.get("settings", {}).get("name", "")
+          actual_id = job.get("job_id")
 
-          if job.get("job_id") != 604667021938916:
+          if actual_id != 604667021938916:
               raise RuntimeError("Job ID mismatch")
 
           if not name.endswith("barrioiq-smoke-job"):
               raise RuntimeError("Unexpected Job name")
 
           print("Existing Job verified")
-          print("Job ID:", job["job_id"])
+          print("Job ID:", actual_id)
+          print("Job name:", name)
           PY
 
+      # 4. Validar o Databricks Bundle
       - name: Validate Bundle
-        run: databricks bundle validate --target dev
+        run: |
+          databricks bundle validate --target dev
 
+      # 5. Gerar o plano de implantação
       - name: Generate deployment plan
         run: |
           databricks bundle plan \
             --target dev \
             --output json > /tmp/barrioiq-plan.json
 
+      # 6. Validar alterações e idempotência
       - name: Verify planned changes
         shell: bash
         run: |
@@ -138,23 +144,43 @@ jobs:
           with open("/tmp/barrioiq-plan.json") as f:
               data = json.load(f)
 
-          plan = data.get("plan", {})
+          plan = data.get("plan") or {}
           resource = "resources.jobs.barrioiq_smoke_job"
 
-          if set(plan) != {resource}:
+          # Nenhuma alteração necessária:
+          # o deploy pode continuar de forma idempotente.
+          if not plan:
+              print("No resource changes required.")
+              raise SystemExit(0)
+
+          # Não permitir recursos inesperados.
+          if set(plan.keys()) != {resource}:
               raise RuntimeError(
-                  f"Unexpected resources: {list(plan)}"
+                  f"Unexpected resources: {list(plan.keys())}"
               )
 
           change = plan[resource]
+          action = change.get("action")
 
-          if change.get("action") != "update":
+          # Recurso sem alterações.
+          if action == "skip":
+              print("Existing Job is unchanged.")
+              raise SystemExit(0)
+
+          # Criação ou exclusão não são permitidas.
+          if action != "update":
               raise RuntimeError(
-                  f"Unexpected action: {change.get('action')}"
+                  f"Unexpected action: {action}"
               )
 
-          fields = change.get("changes", {})
+          fields = change.get("changes") or {}
 
+          if not isinstance(fields, dict):
+              raise RuntimeError(
+                  "Invalid deployment changes structure"
+              )
+
+          # Campos permitidos para o Job atual.
           allowed = {
               "deployment.metadata_file_path",
               "edit_mode",
@@ -178,32 +204,49 @@ jobs:
                   f"Unexpected fields: {sorted(unexpected)}"
               )
 
-          name = fields.get("name", {}).get("new", "")
+          # Verificar nome somente quando for alterado.
+          if "name" in fields:
+              name = fields["name"].get("new", "")
+
+              if not name.endswith("barrioiq-smoke-job"):
+                  raise RuntimeError(
+                      "Unexpected new Job name"
+                  )
+
+          # Verificar caminho somente quando for alterado.
           path_key = (
               "tasks[task_key='validar_ambiente']"
               ".notebook_task.notebook_path"
           )
-          path = fields.get(path_key, {}).get("new", "")
-          edit_mode = fields.get("edit_mode", {}).get("new")
 
-          if not name.endswith("barrioiq-smoke-job"):
-              raise RuntimeError("Unexpected new Job name")
+          if path_key in fields:
+              path = fields[path_key].get("new", "")
 
-          if not (
-              path.endswith("/00_bundle_smoke")
-              and "/.bundle/" in path
-          ):
-              raise RuntimeError("Unexpected notebook path")
+              if not (
+                  path.endswith("/00_bundle_smoke")
+                  and "/.bundle/" in path
+              ):
+                  raise RuntimeError(
+                      "Unexpected notebook path"
+                  )
 
-          if edit_mode != "UI_LOCKED":
-              raise RuntimeError("Unexpected edit mode")
+          # Verificar modo de edição somente se mudar.
+          if "edit_mode" in fields:
+              edit_mode = fields["edit_mode"].get("new")
 
+              if edit_mode != "UI_LOCKED":
+                  raise RuntimeError(
+                      "Unexpected edit mode"
+                  )
+
+          # Evitar remover notificações já existentes.
           for key in (
               "email_notifications",
               "webhook_notifications",
               "tasks[task_key='validar_ambiente'].email_notifications",
           ):
               remote = fields.get(key, {}).get("remote")
+
               if remote not in (None, {}, [], ""):
                   raise RuntimeError(
                       f"Review required for {key}"
@@ -213,6 +256,7 @@ jobs:
           print("Only the existing smoke Job will be updated")
           PY
 
+      # 7. Aplicar somente o plano aprovado
       - name: Deploy approved plan
         run: |
           databricks bundle deploy \
@@ -221,6 +265,7 @@ jobs:
             --auto-approve \
             --fail-on-active-runs
 
+      # 8. Verificar o recurso após o deploy
       - name: Verify Job after deployment
         shell: bash
         run: |
