@@ -1,13 +1,17 @@
 
 name: BarrioIQ - Databricks CD Deploy
 
+
 on:
   push:
     branches:
-      - feature/databricks-initial-setup
+      - main
     paths:
+      - "barrioiq_pipeline/**"
       - ".github/workflows/databricks-cd-deploy.yml"
+
   workflow_dispatch:
+
 
 permissions:
   contents: read
