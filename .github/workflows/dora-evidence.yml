@@ -1,0 +1,201 @@
+
+name: BarrioIQ - DORA Evidence
+
+on:
+  push:
+    branches:
+      - main
+      - feature/databricks-initial-setup
+    paths:
+      - ".github/workflows/dora-evidence.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  collect-metrics:
+    name: Collect Delivery Evidence
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Collect GitHub Actions metrics
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          from datetime import datetime, timedelta, timezone
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+
+          repo = os.environ["REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+
+          now = datetime.now(timezone.utc)
+          cutoff = now - timedelta(days=30)
+
+          workflow_path = (
+              ".github/workflows/"
+              "databricks-cd-deploy.yml"
+          )
+
+          runs = []
+          truncated = False
+
+          for page in range(1, 11):
+              params = urlencode({
+                  "per_page": 100,
+                  "page": page,
+                  "created": f">={cutoff.date().isoformat()}"
+              })
+
+              url = (
+                  f"https://api.github.com/repos/{repo}"
+                  f"/actions/runs?{params}"
+              )
+
+              request = Request(
+                  url,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  }
+              )
+
+              with urlopen(request, timeout=30) as response:
+                  batch = json.load(response).get(
+                      "workflow_runs", []
+                  )
+
+              runs.extend(batch)
+
+              if len(batch) < 100:
+                  break
+              if page == 10:
+                  truncated = True
+
+          cd_runs = []
+
+          for run in runs:
+              path = run.get("path", "").split("@")[0]
+
+              if path != workflow_path:
+                  continue
+
+              created = datetime.fromisoformat(
+                  run["created_at"].replace("Z", "+00:00")
+              )
+
+              if created >= cutoff:
+                  cd_runs.append(run)
+
+          def summarize(branch):
+              selected = [
+                  run for run in cd_runs
+                  if run.get("head_branch") == branch
+              ]
+
+              return {
+                  "total": len(selected),
+                  "success": sum(
+                      run.get("conclusion") == "success"
+                      for run in selected
+                  ),
+                  "failure": sum(
+                      run.get("conclusion") == "failure"
+                      for run in selected
+                  ),
+                  "incomplete": sum(
+                      run.get("conclusion") is None
+                      for run in selected
+                  ),
+              }
+
+          main = summarize("main")
+          dev = summarize(
+              "feature/databricks-initial-setup"
+          )
+
+          report = [
+              "# BarrioIQ - Evidencias de Entrega",
+              "",
+              "**Periodo:** ultimos 30 dias",
+              "",
+              "## Execucoes do workflow de CD",
+              "",
+              "| Branch | Total | Sucesso | Falha | Em andamento |",
+              "|---|---:|---:|---:|---:|",
+              f"| main | {main['total']} | "
+              f"{main['success']} | {main['failure']} | "
+              f"{main['incomplete']} |",
+              f"| feature DEV | {dev['total']} | "
+              f"{dev['success']} | {dev['failure']} | "
+              f"{dev['incomplete']} |",
+              "",
+              "## Interpretacao",
+              "",
+              "- Sucesso do workflow nao prova que houve mudanca efetiva no Job.",
+              "- A branch main tambem publica no ambiente DEV.",
+              "- Falha de workflow nao equivale a incidente de producao.",
+              "- Lead time DORA requer rastrear commits ate o deploy.",
+              "- Taxa de falha exige relacionar incidentes a deploys.",
+              "- Tempo de recuperacao exige registrar restauracoes.",
+              "",
+              "## Metricas DORA de producao",
+              "",
+              "| Indicador | Resultado |",
+              "|---|---|",
+              "| Frequencia de deploy | N/D - sem producao instrumentada |",
+              "| Lead time das mudancas | N/D |",
+              "| Taxa de falhas por mudanca | N/D |",
+              "| Tempo de recuperacao | N/D |",
+              "| Taxa de retrabalho | N/D |",
+              "",
+              "## Evidencias recentes",
+              "",
+          ]
+
+          recent = sorted(
+              cd_runs,
+              key=lambda run: run["created_at"],
+              reverse=True
+          )[:5]
+
+          if recent:
+              for run in recent:
+                  report.append(
+                      f"- [{run['head_branch']} - "
+                      f"{run.get('conclusion') or 'running'}]"
+                      f"({run['html_url']})"
+                  )
+          else:
+              report.append(
+                  "Nenhuma execucao de CD encontrada no periodo."
+              )
+
+          if truncated:
+              report.append(
+                  "\nAviso: a consulta atingiu o limite de paginacao; "
+                  "os dados podem estar incompletos."
+              )
+
+          output = "\n".join(report)
+
+          print(output)
+
+          with open(
+              os.environ["GITHUB_STEP_SUMMARY"],
+              "a",
+              encoding="utf-8"
+          ) as file:
+              file.write(output + "\n")
+
+          print("\nDORA_EVIDENCE_COLLECTION_SUCCESS")
+          PY
