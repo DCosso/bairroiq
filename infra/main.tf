@@ -25,3 +25,10 @@ resource "databricks_volume" "raw" {
 
   comment = "Arquivos brutos do BarrioIQ"
 }
+
+resource "databricks_schema" "observability" {
+  catalog_name  = local.catalog_name
+  name          = "observability"
+  comment       = "BarrioIQ - Monitoramento e auditoria de dados"
+  force_destroy = false
+}
