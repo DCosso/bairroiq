@@ -113,16 +113,32 @@ jobs:
           print(f"Action: {action}")
           print("Available change details:")
 
-          found = False
-          for key in ("changes", "diff", "fields"):
-              details = change.get(key)
-              if isinstance(details, dict):
-                  for field in details:
-                      print(f" - {field}")
-                      found = True
+          
+          details = (
+              change.get("changes")
+              or change.get("diff")
+              or change.get("fields")
+              or {}
+          )
 
-          if not found:
-              print("CLI did not expose field-level differences.")
+          important_fields = [
+              "name",
+              "edit_mode",
+              "tasks[task_key='validar_ambiente'].disabled",
+              "tasks[task_key='validar_ambiente'].notebook_task.notebook_path",
+              "tasks[task_key='validar_ambiente'].notebook_task.source",
+              "tasks[task_key='validar_ambiente'].run_if",
+              "tasks[task_key='validar_ambiente'].timeout_seconds",
+          ]
+
+          for field in important_fields:
+              if field in details:
+                  print(f"\nFIELD: {field}")
+                  print(json.dumps(
+                      details[field],
+                      indent=2,
+                      ensure_ascii=False
+                  ))
 
           print("No deployment executed.")
           PY
