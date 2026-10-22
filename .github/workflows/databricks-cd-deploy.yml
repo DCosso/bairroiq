@@ -1,0 +1,246 @@
+
+name: BarrioIQ - Databricks CD Deploy
+
+on:
+  push:
+    branches:
+      - feature/databricks-initial-setup
+    paths:
+      - ".github/workflows/databricks-cd-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: barrioiq-databricks-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Existing Databricks Job
+    runs-on: ubuntu-latest
+    environment: databricks-dev
+
+    defaults:
+      run:
+        working-directory: barrioiq_pipeline
+
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_AUTH_TYPE: pat
+      BARRIOIQ_JOB_ID: ${{ vars.BARRIOIQ_EXISTING_JOB_ID }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Obtain scoped OAuth token
+        shell: bash
+        env:
+          DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import base64
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+
+          host = os.environ["DATABRICKS_HOST"].rstrip("/")
+          client_id = os.environ["DATABRICKS_CLIENT_ID"]
+          secret = os.environ["DATABRICKS_CLIENT_SECRET"]
+
+          if not all((host, client_id, secret)):
+              raise RuntimeError("Missing OAuth configuration")
+
+          credentials = base64.b64encode(
+              f"{client_id}:{secret}".encode()
+          ).decode()
+
+          request = Request(
+              f"{host}/oidc/v1/token",
+              data=urlencode({
+                  "grant_type": "client_credentials",
+                  "scope": "jobs workspace"
+              }).encode(),
+              headers={
+                  "Authorization": f"Basic {credentials}",
+                  "Content-Type":
+                      "application/x-www-form-urlencoded"
+              },
+              method="POST"
+          )
+
+          with urlopen(request, timeout=30) as response:
+              token = json.load(response)["access_token"]
+
+          print(f"::add-mask::{token}")
+
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"DATABRICKS_TOKEN={token}\n")
+
+          print("OAuth authentication OK")
+          PY
+
+      - name: Verify existing Job
+        shell: bash
+        run: |
+          test "$BARRIOIQ_JOB_ID" = "604667021938916" || {
+            echo "Unexpected Job ID"
+            exit 1
+          }
+
+          databricks jobs get "$BARRIOIQ_JOB_ID" \
+            --output json > /tmp/job-before.json
+
+          python - <<'PY'
+          import json
+
+          with open("/tmp/job-before.json") as f:
+              job = json.load(f)
+
+          name = job.get("settings", {}).get("name", "")
+
+          if job.get("job_id") != 604667021938916:
+              raise RuntimeError("Job ID mismatch")
+
+          if not name.endswith("barrioiq-smoke-job"):
+              raise RuntimeError("Unexpected Job name")
+
+          print("Existing Job verified")
+          print("Job ID:", job["job_id"])
+          PY
+
+      - name: Validate Bundle
+        run: databricks bundle validate --target dev
+
+      - name: Generate deployment plan
+        run: |
+          databricks bundle plan \
+            --target dev \
+            --output json > /tmp/barrioiq-plan.json
+
+      - name: Verify planned changes
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+
+          with open("/tmp/barrioiq-plan.json") as f:
+              data = json.load(f)
+
+          plan = data.get("plan", {})
+          resource = "resources.jobs.barrioiq_smoke_job"
+
+          if set(plan) != {resource}:
+              raise RuntimeError(
+                  f"Unexpected resources: {list(plan)}"
+              )
+
+          change = plan[resource]
+
+          if change.get("action") != "update":
+              raise RuntimeError(
+                  f"Unexpected action: {change.get('action')}"
+              )
+
+          fields = change.get("changes", {})
+
+          allowed = {
+              "deployment.metadata_file_path",
+              "edit_mode",
+              "email_notifications",
+              "name",
+              "tags['dev']",
+              "tasks[task_key='validar_ambiente'].disabled",
+              "tasks[task_key='validar_ambiente'].email_notifications",
+              "tasks[task_key='validar_ambiente'].notebook_task.notebook_path",
+              "tasks[task_key='validar_ambiente'].notebook_task.source",
+              "tasks[task_key='validar_ambiente'].run_if",
+              "tasks[task_key='validar_ambiente'].timeout_seconds",
+              "timeout_seconds",
+              "webhook_notifications",
+          }
+
+          unexpected = set(fields) - allowed
+
+          if unexpected:
+              raise RuntimeError(
+                  f"Unexpected fields: {sorted(unexpected)}"
+              )
+
+          name = fields.get("name", {}).get("new", "")
+          path_key = (
+              "tasks[task_key='validar_ambiente']"
+              ".notebook_task.notebook_path"
+          )
+          path = fields.get(path_key, {}).get("new", "")
+          edit_mode = fields.get("edit_mode", {}).get("new")
+
+          if not name.endswith("barrioiq-smoke-job"):
+              raise RuntimeError("Unexpected new Job name")
+
+          if not (
+              path.endswith("/00_bundle_smoke")
+              and "/.bundle/" in path
+          ):
+              raise RuntimeError("Unexpected notebook path")
+
+          if edit_mode != "UI_LOCKED":
+              raise RuntimeError("Unexpected edit mode")
+
+          for key in (
+              "email_notifications",
+              "webhook_notifications",
+              "tasks[task_key='validar_ambiente'].email_notifications",
+          ):
+              remote = fields.get(key, {}).get("remote")
+              if remote not in (None, {}, [], ""):
+                  raise RuntimeError(
+                      f"Review required for {key}"
+                  )
+
+          print("Deployment plan approved")
+          print("Only the existing smoke Job will be updated")
+          PY
+
+      - name: Deploy approved plan
+        run: |
+          databricks bundle deploy \
+            --target dev \
+            --plan /tmp/barrioiq-plan.json \
+            --auto-approve \
+            --fail-on-active-runs
+
+      - name: Verify Job after deployment
+        shell: bash
+        run: |
+          databricks jobs get "$BARRIOIQ_JOB_ID" \
+            --output json > /tmp/job-after.json
+
+          python - <<'PY'
+          import json
+
+          with open("/tmp/job-after.json") as f:
+              job = json.load(f)
+
+          expected = 604667021938916
+          actual = job.get("job_id")
+          name = job.get("settings", {}).get("name", "")
+
+          if actual != expected:
+              raise RuntimeError("Job ID changed")
+
+          if not name.endswith("barrioiq-smoke-job"):
+              raise RuntimeError("Unexpected Job name")
+
+          print("Deployment verified")
+          print("Job ID preserved:", actual)
+          print("Job name:", name)
+          print("BarrioIQ CD deployment successful")
+          PY
