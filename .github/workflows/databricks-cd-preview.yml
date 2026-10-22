@@ -83,8 +83,50 @@ jobs:
       - name: Validate Databricks Bundle
         run: databricks bundle validate --target dev
 
+
       - name: Preview deployment changes
-        run: databricks bundle plan --target dev
+        shell: bash
+        run: |
+          databricks bundle plan --target dev --output json > /tmp/barrioiq-plan.json
+
+          python - <<'PY'
+          import json
+
+          with open("/tmp/barrioiq-plan.json") as f:
+              data = json.load(f)
+
+          plan = data.get("plan", {})
+          resource = "resources.jobs.barrioiq_smoke_job"
+
+          if set(plan.keys()) != {resource}:
+              raise RuntimeError(
+                  f"Unexpected resources in plan: {list(plan.keys())}"
+              )
+
+          change = plan[resource]
+          action = change.get("action")
+
+          if action != "update":
+              raise RuntimeError(f"Unexpected action: {action}")
+
+          print(f"Resource: {resource}")
+          print(f"Action: {action}")
+          print("Available change details:")
+
+          found = False
+          for key in ("changes", "diff", "fields"):
+              details = change.get(key)
+              if isinstance(details, dict):
+                  for field in details:
+                      print(f" - {field}")
+                      found = True
+
+          if not found:
+              print("CLI did not expose field-level differences.")
+
+          print("No deployment executed.")
+          PY
+
 
       - name: Preview completed
         run: echo "Preview finished. No deployment executed."
