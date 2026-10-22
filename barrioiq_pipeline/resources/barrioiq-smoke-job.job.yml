@@ -1,0 +1,19 @@
+
+resources:
+  jobs:
+    barrioiq_smoke_job:
+      name: barrioiq-smoke-job
+
+      queue:
+        enabled: true
+
+      tasks:
+        - task_key: validar_ambiente
+          notebook_task:
+            notebook_path: ../00_bundle_smoke.ipynb
+
+        - task_key: validar_qualidade
+          depends_on:
+            - task_key: validar_ambiente
+          notebook_task:
+            notebook_path: ../01_quality_smoke.py

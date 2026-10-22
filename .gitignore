@@ -1,0 +1,7 @@
+
+# Terraform - arquivos locais
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json

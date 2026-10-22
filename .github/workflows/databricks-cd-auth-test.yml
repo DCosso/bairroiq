@@ -1,0 +1,81 @@
+
+name: BarrioIQ - Databricks CD Auth Test
+
+on:
+  push:
+    branches:
+      - feature/databricks-initial-setup
+    paths:
+      - ".github/workflows/databricks-cd-auth-test.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authentication-test:
+    name: Test Service Principal Authentication
+    runs-on: ubuntu-latest
+    environment: databricks-dev
+
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+
+    steps:
+      - name: Test scoped OAuth and Jobs API
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import base64
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+
+          host = os.environ["DATABRICKS_HOST"].rstrip("/")
+          client_id = os.environ["DATABRICKS_CLIENT_ID"]
+          client_secret = os.environ["DATABRICKS_CLIENT_SECRET"]
+
+          if not all([host, client_id, client_secret]):
+              raise RuntimeError("Missing Databricks configuration")
+
+          credentials = f"{client_id}:{client_secret}"
+          basic_auth = base64.b64encode(
+              credentials.encode()
+          ).decode()
+
+          token_request = Request(
+              f"{host}/oidc/v1/token",
+              data=urlencode({
+                  "grant_type": "client_credentials",
+                  "scope": "jobs workspace"
+              }).encode(),
+              headers={
+                  "Authorization": f"Basic {basic_auth}",
+                  "Content-Type":
+                      "application/x-www-form-urlencoded"
+              },
+              method="POST"
+          )
+
+          with urlopen(token_request, timeout=30) as response:
+              token = json.load(response)["access_token"]
+
+          print("OAuth M2M authentication: OK")
+
+          jobs_request = Request(
+              f"{host}/api/2.1/jobs/list?limit=1",
+              headers={
+                  "Authorization": f"Bearer {token}"
+              }
+          )
+
+          with urlopen(jobs_request, timeout=30) as response:
+              response.read()
+              print(f"Jobs API: OK (HTTP {response.status})")
+
+          print("BarrioIQ CD authentication test passed!")
+          PY

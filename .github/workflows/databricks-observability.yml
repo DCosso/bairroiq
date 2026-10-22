@@ -1,0 +1,163 @@
+
+name: BarrioIQ - Job Observability
+
+on:
+  push:
+    branches:
+      - feature/databricks-initial-setup
+    paths:
+      - ".github/workflows/databricks-observability.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    name: Monitor Databricks Job
+    runs-on: ubuntu-latest
+    environment: databricks-dev
+
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+      BARRIOIQ_JOB_ID: ${{ vars.BARRIOIQ_EXISTING_JOB_ID }}
+
+    steps:
+      - name: Collect job execution metrics
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import base64
+          from datetime import datetime, timezone
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+
+          host = os.environ["DATABRICKS_HOST"].rstrip("/")
+          client_id = os.environ["DATABRICKS_CLIENT_ID"]
+          secret = os.environ["DATABRICKS_CLIENT_SECRET"]
+          job_id = os.environ["BARRIOIQ_JOB_ID"]
+
+          if not job_id.isdigit():
+              raise ValueError("Invalid Job ID")
+
+          basic = base64.b64encode(
+              f"{client_id}:{secret}".encode()
+          ).decode()
+
+          request = Request(
+              f"{host}/oidc/v1/token",
+              data=urlencode({
+                  "grant_type": "client_credentials",
+                  "scope": "jobs workspace"
+              }).encode(),
+              headers={
+                  "Authorization": f"Basic {basic}",
+                  "Content-Type":
+                      "application/x-www-form-urlencoded"
+              },
+              method="POST"
+          )
+
+          with urlopen(request, timeout=30) as response:
+              token = json.load(response)["access_token"]
+
+          params = urlencode({
+              "job_id": job_id,
+              "limit": 20,
+              "completed_only": "true"
+          })
+
+          request = Request(
+              f"{host}/api/2.1/jobs/runs/list?{params}",
+              headers={
+                  "Authorization": f"Bearer {token}"
+              }
+          )
+
+          with urlopen(request, timeout=30) as response:
+              runs = json.load(response).get("runs", [])
+
+          successes = 0
+          failures = 0
+          durations = []
+          details = []
+
+          for run in runs:
+              state = run.get("state") or {}
+              result = state.get("result_state")
+
+              if not result:
+                  termination = (
+                      (run.get("status") or {})
+                      .get("termination_details") or {}
+                  )
+                  result = termination.get("code", "UNKNOWN")
+
+              if result == "SUCCESS":
+                  successes += 1
+              else:
+                  failures += 1
+
+              duration_ms = run.get("run_duration") or 0
+              if not duration_ms:
+                  start = run.get("start_time") or 0
+                  end = run.get("end_time") or 0
+                  duration_ms = max(0, end - start)
+
+              seconds = duration_ms / 1000
+              durations.append(seconds)
+
+              start_ms = run.get("start_time") or 0
+              started = (
+                  datetime.fromtimestamp(
+                      start_ms / 1000, tz=timezone.utc
+                  ).strftime("%Y-%m-%d %H:%M UTC")
+                  if start_ms else "N/A"
+              )
+
+              details.append(
+                  f"| {run.get('run_id')} | {started} "
+                  f"| {result} | {seconds:.0f}s |"
+              )
+
+          total = len(runs)
+          rate = successes / total * 100 if total else 0
+          avg = sum(durations) / total if total else 0
+
+          report = [
+              "# BarrioIQ - Job Observability",
+              "",
+              f"**Job ID:** {job_id}",
+              f"**Completed runs analyzed:** {total}",
+              f"**Successes:** {successes}",
+              f"**Other outcomes:** {failures}",
+              f"**Success rate:** {rate:.1f}%",
+              f"**Average duration:** {avg:.1f}s",
+              "",
+              "## Execution history",
+              "",
+              "| Run ID | Started | Result | Duration |",
+              "|---|---|---|---|",
+              *details
+          ]
+
+          if not runs:
+              report.append("| - | - | No runs | - |")
+
+          output = "\n".join(report)
+
+          with open(
+              os.environ["GITHUB_STEP_SUMMARY"],
+              "a",
+              encoding="utf-8"
+          ) as file:
+              file.write(output + "\n")
+
+          print(output)
+          print("Observability collection completed.")
+          PY

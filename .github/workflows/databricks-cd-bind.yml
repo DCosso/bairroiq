@@ -1,0 +1,153 @@
+
+name: BarrioIQ - Bind Existing Databricks Job
+
+on:
+  push:
+    branches:
+      - feature/databricks-initial-setup
+    paths:
+      - ".github/workflows/databricks-cd-bind.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bind-existing-job:
+    name: Bind Existing Job
+    runs-on: ubuntu-latest
+    environment: databricks-dev
+
+    defaults:
+      run:
+        working-directory: barrioiq_pipeline
+
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_AUTH_TYPE: pat
+      BARRIOIQ_JOB_ID: ${{ vars.BARRIOIQ_EXISTING_JOB_ID }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Obtain scoped OAuth token
+        shell: bash
+        env:
+          DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import base64
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+
+          host = os.environ["DATABRICKS_HOST"].rstrip("/")
+          client_id = os.environ["DATABRICKS_CLIENT_ID"]
+          client_secret = os.environ["DATABRICKS_CLIENT_SECRET"]
+
+          if not all([host, client_id, client_secret]):
+              raise RuntimeError("Missing OAuth configuration")
+
+          credentials = base64.b64encode(
+              f"{client_id}:{client_secret}".encode()
+          ).decode()
+
+          request = Request(
+              f"{host}/oidc/v1/token",
+              data=urlencode({
+                  "grant_type": "client_credentials",
+                  "scope": "jobs workspace"
+              }).encode(),
+              headers={
+                  "Authorization": f"Basic {credentials}",
+                  "Content-Type": "application/x-www-form-urlencoded"
+              },
+              method="POST"
+          )
+
+          with urlopen(request, timeout=30) as response:
+              token = json.load(response)["access_token"]
+
+          print(f"::add-mask::{token}")
+
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"DATABRICKS_TOKEN={token}\n")
+
+          print("OAuth authentication OK")
+          PY
+
+      - name: Verify existing Job identity
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+
+          job_id = os.environ.get("BARRIOIQ_JOB_ID", "")
+          if not job_id.isdigit():
+              raise RuntimeError("Invalid or missing Job ID")
+
+          host = os.environ["DATABRICKS_HOST"].rstrip("/")
+          token = os.environ["DATABRICKS_TOKEN"]
+
+          url = (
+              f"{host}/api/2.1/jobs/get?"
+              + urlencode({"job_id": job_id})
+          )
+
+          request = Request(
+              url,
+              headers={"Authorization": f"Bearer {token}"}
+          )
+
+          with urlopen(request, timeout=30) as response:
+              job = json.load(response)
+
+          actual_name = job.get("settings", {}).get("name")
+          expected_name = "[dev douglas_cosso] barrioiq-smoke-job"
+
+          print(f"Job ID: {job_id}")
+          print(f"Job name: {actual_name}")
+
+          if actual_name != expected_name:
+              raise RuntimeError(
+                  "Job name mismatch. Binding cancelled."
+              )
+
+          print("Existing Job identity verified")
+          PY
+
+      - name: Validate Bundle
+        run: databricks bundle validate --target dev
+
+      - name: Bind existing Job
+        run: |
+          databricks bundle deployment bind \
+            barrioiq_smoke_job \
+            "$BARRIOIQ_JOB_ID" \
+            --target dev \
+            --auto-approve
+
+      - name: Preview after binding
+        shell: bash
+        run: |
+          databricks bundle plan --target dev | tee /tmp/barrioiq-plan.txt
+
+          if grep -E '^[[:space:]]*(create|delete) jobs\.' /tmp/barrioiq-plan.txt; then
+            echo "Unexpected Job creation or deletion detected"
+            exit 1
+          fi
+
+          echo "No Job creation or deletion planned."
+
+      - name: Binding completed
+        run: echo "BarrioIQ existing Job binding completed"

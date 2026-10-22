@@ -1,0 +1,146 @@
+
+name: BarrioIQ - Databricks CD Preview
+
+on:
+  push:
+    branches:
+      - feature/databricks-initial-setup
+    paths:
+      - "barrioiq_pipeline/**"
+      - ".github/workflows/databricks-cd-preview.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deployment-preview:
+    name: Preview Databricks Deployment
+    runs-on: ubuntu-latest
+    environment: databricks-dev
+
+    defaults:
+      run:
+        working-directory: barrioiq_pipeline
+
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_AUTH_TYPE: pat
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Obtain scoped OAuth token
+        shell: bash
+        env:
+          DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import base64
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+
+          host = os.environ["DATABRICKS_HOST"].rstrip("/")
+          client_id = os.environ["DATABRICKS_CLIENT_ID"]
+          secret = os.environ["DATABRICKS_CLIENT_SECRET"]
+
+          if not all((host, client_id, secret)):
+              raise RuntimeError("Missing OAuth configuration")
+
+          credentials = base64.b64encode(
+              f"{client_id}:{secret}".encode()
+          ).decode()
+
+          request = Request(
+              f"{host}/oidc/v1/token",
+              data=urlencode({
+                  "grant_type": "client_credentials",
+                  "scope": "jobs workspace"
+              }).encode(),
+              headers={
+                  "Authorization": f"Basic {credentials}",
+                  "Content-Type":
+                      "application/x-www-form-urlencoded"
+              },
+              method="POST"
+          )
+
+          with urlopen(request, timeout=30) as response:
+              token = json.load(response)["access_token"]
+
+          print(f"::add-mask::{token}")
+
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"DATABRICKS_TOKEN={token}\n")
+
+          print("OAuth authentication OK")
+          PY
+
+      - name: Validate Databricks Bundle
+        run: databricks bundle validate --target dev
+
+      - name: Preview deployment changes
+        shell: bash
+        run: |
+          databricks bundle plan \
+            --target dev \
+            --output json > /tmp/barrioiq-plan.json
+
+          python - <<'PY'
+          import json
+
+          with open("/tmp/barrioiq-plan.json") as f:
+              data = json.load(f)
+
+          plan = data.get("plan") or {}
+          resource = "resources.jobs.barrioiq_smoke_job"
+
+          if not plan:
+              print("NO RESOURCE CHANGES")
+              print("Bundle preview approved")
+
+          else:
+              if set(plan) != {resource}:
+                  raise RuntimeError(
+                      f"Unexpected resources: {list(plan)}"
+                  )
+
+              change = plan[resource]
+              action = change.get("action")
+
+              if action not in ("update", "skip"):
+                  raise RuntimeError(
+                      f"Unexpected action: {action}"
+                  )
+
+              print("RESOURCE:", resource)
+              print("ACTION:", action)
+
+              fields = change.get("changes") or {}
+
+              if not isinstance(fields, dict):
+                  raise RuntimeError(
+                      "Invalid changes structure"
+                  )
+
+              print("CHANGED FIELDS:")
+
+              for field in sorted(fields):
+                  print(" -", field)
+
+          print("NO JOB CREATION")
+          print("NO JOB DELETION")
+          print("NO DEPLOYMENT EXECUTED")
+          PY
+
+      - name: Preview completed
+        run: |
+          echo "BARRIOIQ_CD_PREVIEW_SUCCESS"

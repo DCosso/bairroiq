@@ -1,0 +1,92 @@
+
+name: BarrioIQ - Databricks Bundle CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle-validation:
+    name: Bundle Static Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install PyYAML==6.0.2
+
+      - name: Validate Bundle configuration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+
+          root = Path("barrioiq_pipeline")
+          main_file = root / "databricks.yml"
+
+          assert main_file.is_file(), "databricks.yml ausente"
+
+          files = [main_file]
+          files += sorted((root / "resources").rglob("*.yml"))
+          files += sorted((root / "resources").rglob("*.yaml"))
+
+          documents = {}
+          for file in files:
+              data = yaml.safe_load(file.read_text(encoding="utf-8"))
+              assert isinstance(data, dict), f"YAML invalido: {file}"
+              documents[file] = data
+              print(f"YAML OK: {file}")
+
+          config = documents[main_file]
+          assert config.get("bundle", {}).get("name"), "Nome do Bundle ausente"
+
+          jobs = 0
+
+          for file, doc in documents.items():
+              resources = doc.get("resources") or {}
+              for name, job in (resources.get("jobs") or {}).items():
+                  jobs += 1
+
+                  for task in job.get("tasks", []):
+                      notebook = (task.get("notebook_task") or {}).get("notebook_path")
+                      if not notebook:
+                          continue
+
+                      if notebook.startswith("/") or "${" in notebook:
+                          continue
+
+                      path = (file.parent / notebook).resolve()
+                      candidates = [
+                          path,
+                          path.with_suffix(".ipynb"),
+                          path.with_suffix(".py"),
+                          path.with_suffix(".sql"),
+                      ]
+
+                      assert any(p.is_file() for p in candidates), (
+                          f"Notebook nao encontrado: {notebook}"
+                      )
+
+                      print(f"Notebook OK: {notebook}")
+
+          assert jobs > 0, "Nenhum Job encontrado"
+          print(f"Bundle validado estruturalmente: {jobs} Job(s)")
+          PY
