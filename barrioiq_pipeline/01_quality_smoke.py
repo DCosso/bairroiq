@@ -1,4 +1,3 @@
-
 # Databricks notebook source
 """BarrioIQ - Data Quality com PySpark e auditoria Delta."""
 
