@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - main
-      - feature/databricks-initial-setup
     paths:
       - "barrioiq_pipeline/**"
       - ".github/workflows/databricks-cd-deploy.yml"
@@ -31,6 +30,8 @@ jobs:
       BARRIOIQ_JOB_ID: ${{ vars.BARRIOIQ_EXISTING_JOB_ID }}
 
     steps:
+      # 1. PREPARAR AMBIENTE
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -39,6 +40,8 @@ jobs:
         with:
           python-version: "3.12"
 
+      # 2. TESTES DE QUALIDADE
+
       - name: Run data quality tests
         run: |
           python -m unittest discover \
@@ -46,8 +49,12 @@ jobs:
             -p "test_barrioiq_quality.py" \
             -v
 
+      # 3. INSTALAR DATABRICKS CLI
+
       - name: Install Databricks CLI
         uses: databricks/setup-cli@main
+
+      # 4. AUTENTICACAO OAUTH M2M
 
       - name: Obtain scoped OAuth token
         shell: bash
@@ -81,7 +88,8 @@ jobs:
               }).encode(),
               headers={
                   "Authorization": f"Basic {credentials}",
-                  "Content-Type": "application/x-www-form-urlencoded"
+                  "Content-Type":
+                      "application/x-www-form-urlencoded"
               },
               method="POST"
           )
@@ -96,6 +104,8 @@ jobs:
 
           print("OAuth authentication OK")
           PY
+
+      # 5. VERIFICAR JOB EXISTENTE
 
       - name: Verify existing Job
         shell: bash
@@ -145,10 +155,14 @@ jobs:
           print("Tasks before deployment:", sorted(task_keys))
           PY
 
+      # 6. VALIDAR BUNDLE
+
       - name: Validate Bundle
         working-directory: barrioiq_pipeline
         run: |
           databricks bundle validate --target dev
+
+      # 7. GERAR PLANO DE DEPLOY
 
       - name: Generate deployment plan
         working-directory: barrioiq_pipeline
@@ -156,6 +170,8 @@ jobs:
           databricks bundle plan \
             --target dev \
             --output json > /tmp/barrioiq-plan.json
+
+      # 8. VALIDAR ALTERACOES E IDEMPOTENCIA
 
       - name: Verify planned changes
         shell: bash
@@ -169,10 +185,12 @@ jobs:
           plan = data.get("plan") or {}
           resource = "resources.jobs.barrioiq_smoke_job"
 
+          # Aceitar plano sem alteracoes.
           if not plan:
               print("No resource changes required")
               raise SystemExit(0)
 
+          # Bloquear recursos inesperados.
           if set(plan) != {resource}:
               raise RuntimeError(
                   f"Unexpected resources: {list(plan)}"
@@ -181,10 +199,12 @@ jobs:
           change = plan[resource]
           action = change.get("action")
 
+          # Job inalterado.
           if action == "skip":
               print("Existing Job is unchanged")
               raise SystemExit(0)
 
+          # Proibir criacao ou exclusao.
           if action != "update":
               raise RuntimeError(
                   f"Unexpected action: {action}"
@@ -195,8 +215,7 @@ jobs:
           if not isinstance(fields, dict):
               raise RuntimeError("Invalid changes structure")
 
-          # Apenas os campos observados na previa
-          # e previamente aprovados.
+          # Campos permitidos no Job atual.
           allowed = {
               "email_notifications",
               "tasks[task_key='validar_ambiente'].disabled",
@@ -216,8 +235,7 @@ jobs:
                   f"Unexpected changes: {sorted(unexpected)}"
               )
 
-          # Nao permitir remocao ou substituicao
-          # de notificacoes existentes.
+          # Preservar notificacoes existentes.
           notification_fields = {
               "email_notifications",
               "webhook_notifications",
@@ -236,7 +254,7 @@ jobs:
                           f"Notification review required: {key}"
                       )
 
-          # Proteger a configuracao da tarefa existente.
+          # Proteger configuracoes da tarefa existente.
           expected_defaults = {
               "tasks[task_key='validar_ambiente'].disabled":
                   (None, False),
@@ -253,12 +271,13 @@ jobs:
           for key, accepted in expected_defaults.items():
               if key in fields:
                   value = fields[key].get("new")
+
                   if value not in accepted:
                       raise RuntimeError(
                           f"Unexpected value for {key}: {value}"
                       )
 
-          # Validar a inclusao da nova tarefa.
+          # Validar inclusao da tarefa de qualidade.
           quality_key = "tasks[task_key='validar_qualidade']"
 
           if quality_key in fields:
@@ -315,6 +334,8 @@ jobs:
           print("Only the existing Job may be updated")
           PY
 
+      # 9. EXECUTAR DEPLOY DO PLANO APROVADO
+
       - name: Deploy approved plan
         working-directory: barrioiq_pipeline
         run: |
@@ -323,6 +344,8 @@ jobs:
             --plan /tmp/barrioiq-plan.json \
             --auto-approve \
             --fail-on-active-runs
+
+      # 10. VALIDAR JOB APOS DEPLOY
 
       - name: Verify Job after deployment
         shell: bash
@@ -388,6 +411,8 @@ jobs:
           print("DEPLOYMENT_VERIFIED")
           print("Job ID preserved:", expected_id)
           print("Tasks:", sorted(tasks))
-          print("Dependency: validar_ambiente -> validar_qualidade")
+          print(
+              "Dependency: validar_ambiente -> validar_qualidade"
+          )
           print("BARRIOIQ_CD_SUCCESS")
           PY
