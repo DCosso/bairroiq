@@ -20,40 +20,62 @@ jobs:
     environment: databricks-dev
 
     env:
-      DATABRICKS_AUTH_TYPE: oauth-m2m
       DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
       DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
       DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Check configuration
+      - name: Test scoped OAuth and Jobs API
         shell: bash
         run: |
-          test -n "$DATABRICKS_HOST" || {
-            echo "Missing DATABRICKS_HOST"
-            exit 1
-          }
+          python - <<'PY'
+          import os
+          import json
+          import base64
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
 
-          test -n "$DATABRICKS_CLIENT_ID" || {
-            echo "Missing DATABRICKS_CLIENT_ID"
-            exit 1
-          }
+          host = os.environ["DATABRICKS_HOST"].rstrip("/")
+          client_id = os.environ["DATABRICKS_CLIENT_ID"]
+          client_secret = os.environ["DATABRICKS_CLIENT_SECRET"]
 
-          test -n "$DATABRICKS_CLIENT_SECRET" || {
-            echo "Missing DATABRICKS_CLIENT_SECRET"
-            exit 1
-          }
+          if not all([host, client_id, client_secret]):
+              raise RuntimeError("Missing Databricks configuration")
 
-          echo "Required configuration is present."
+          credentials = f"{client_id}:{client_secret}"
+          basic_auth = base64.b64encode(
+              credentials.encode()
+          ).decode()
 
-      - name: Install Databricks CLI
-        uses: databricks/setup-cli@main
+          token_request = Request(
+              f"{host}/oidc/v1/token",
+              data=urlencode({
+                  "grant_type": "client_credentials",
+                  "scope": "jobs workspace"
+              }).encode(),
+              headers={
+                  "Authorization": f"Basic {basic_auth}",
+                  "Content-Type":
+                      "application/x-www-form-urlencoded"
+              },
+              method="POST"
+          )
 
-      - name: Test Service Principal authentication
-        run: databricks current-user me
+          with urlopen(token_request, timeout=30) as response:
+              token = json.load(response)["access_token"]
 
-      - name: Authentication successful
-        run: echo "BarrioIQ Databricks authentication OK"
+          print("OAuth M2M authentication: OK")
+
+          jobs_request = Request(
+              f"{host}/api/2.1/jobs/list?limit=1",
+              headers={
+                  "Authorization": f"Bearer {token}"
+              }
+          )
+
+          with urlopen(jobs_request, timeout=30) as response:
+              response.read()
+              print(f"Jobs API: OK (HTTP {response.status})")
+
+          print("BarrioIQ CD authentication test passed!")
+          PY
