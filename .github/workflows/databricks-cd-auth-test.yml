@@ -1,0 +1,59 @@
+
+name: BarrioIQ - Databricks CD Auth Test
+
+on:
+  push:
+    branches:
+      - feature/databricks-initial-setup
+    paths:
+      - ".github/workflows/databricks-cd-auth-test.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authentication-test:
+    name: Test Service Principal Authentication
+    runs-on: ubuntu-latest
+    environment: databricks-dev
+
+    env:
+      DATABRICKS_AUTH_TYPE: oauth-m2m
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check configuration
+        shell: bash
+        run: |
+          test -n "$DATABRICKS_HOST" || {
+            echo "Missing DATABRICKS_HOST"
+            exit 1
+          }
+
+          test -n "$DATABRICKS_CLIENT_ID" || {
+            echo "Missing DATABRICKS_CLIENT_ID"
+            exit 1
+          }
+
+          test -n "$DATABRICKS_CLIENT_SECRET" || {
+            echo "Missing DATABRICKS_CLIENT_SECRET"
+            exit 1
+          }
+
+          echo "Required configuration is present."
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Test Service Principal authentication
+        run: databricks current-user me
+
+      - name: Authentication successful
+        run: echo "BarrioIQ Databricks authentication OK"
