@@ -1,3 +1,4 @@
+
 # BairroIQ — Inteligência Geográfica para Moradia e Negócios
 
 ## Sobre o projeto
@@ -44,9 +45,7 @@ O produto será uma aplicação web interativa para:
 - Identificar perfis urbanos por clusterização.
 - Consultar fontes, metodologia e limitações dos resultados.
 
-## Arquitetura e tecnologias previstas
-
-O projeto contemplará uma arquitetura Lambda em nuvem, com caminhos de processamento batch e incremental, camadas Bronze, Silver e Gold, modelagem Star Schema e Wide Table, além de CI/CD e infraestrutura como código.
+---
 
 ## Arquitetura de dados
 
@@ -54,9 +53,9 @@ O projeto adota a **arquitetura Medallion**, organizada em três camadas:
 
 | Camada | Responsabilidade | Situação |
 |---|---|---|
-| Bronze | Receber e preservar os dados brutos das fontes públicas.
-| Silver | Limpar, padronizar, validar e integrar os dados.
-| Gold | Disponibilizar indicadores consolidados para análises e aplicações. 
+| Bronze | Receber e preservar os dados brutos das fontes públicas. | Ingestão inicial implementada |
+| Silver | Limpar, padronizar, validar e integrar os dados. | Schema provisionado |
+| Gold | Disponibilizar indicadores consolidados para análises e aplicações. | Schema provisionado |
 
 A infraestrutura contempla também uma camada independente de observabilidade.
 
@@ -73,7 +72,9 @@ Foi criado o Volume gerenciado:
 
 `/Volumes/workspace/bronze/raw/`
 
-A evolução arquitetural prevê processamento batch e incremental, conforme os requisitos acadêmicos, além de modelagem Star Schema e Wide Table.
+### Direcionamento arquitetural
+
+A evolução arquitetural contempla processamento batch e incremental, além de modelagem Star Schema e Wide Table.
 
 ---
 
@@ -170,7 +171,123 @@ O deploy é controlado pelos workflows associados à branch `main` e pelas respe
 
 `Branch → Desenvolvimento → CI → Pull Request → Aprovação → Merge → CD`
 
-Essa abordagem permite validar mudanças antes da integração e manter o histórico das entregas.
+---
+
+## Ingestão de dados — Bronze
+
+A ingestão inicial coleta dados de fontes públicas e os armazena no Volume:
+
+`/Volumes/workspace/bronze/raw/`
+
+### Fontes de dados
+
+| Diretório | Fonte | Conteúdo |
+|---|---|---|
+| `ibge/` | IBGE | Indicadores demográficos e territoriais. |
+| `ssp/` | SSP-SP | Dados de segurança pública. |
+| `observasampa/` | ObservaSampa | Indicadores municipais. |
+| `imoveis/` | Referências imobiliárias | Dados de mercado imobiliário. |
+| `geosampa/` | GeoSampa | Dados geográficos e territoriais. |
+
+### Controles implementados
+
+O pipeline de ingestão contempla:
+
+- Requisições HTTP com retentativas.
+- Download em blocos.
+- Verificação de integridade dos arquivos.
+- Cálculo de hash SHA-256.
+- Comparação com arquivos existentes.
+- Verificação de atualizações por ETag e Last-Modified, quando disponíveis.
+- Registro das execuções em Delta Lake.
+- Tratamento de falhas.
+- Preservação do arquivo existente em caso de falha no download ou na validação do novo conteúdo.
+- Resumo dos resultados de cada execução.
+
+---
+
+## Análise Exploratória de Dados (EDA)
+
+### Base 1 — Segurança pública (SSP-SP)
+
+Foram analisados seis arquivos de segurança pública disponibilizados pela Secretaria da Segurança Pública do Estado de São Paulo.
+
+#### Arquivos analisados
+
+| Arquivo | Registros informados | Colunas informadas | Tamanho |
+|---|---:|---:|---:|
+| `CelularesSubtraidos_2026.xlsx` | 10.211 | 33 | 61,7 MB |
+| `DadosProdutividade_2026.xlsx` | 10.211 | 33 | 110,5 MB |
+| `MDIP_2026.xlsx` | 10.211 | 33 | 2,0 MB |
+| `ObjetosSubtraidos_2026.xlsx` | 10.211 | 33 | 288,4 MB |
+| `SPDadosCriminais_2026.xlsx` | 10.211 | 33 | 120,4 MB |
+| `VeiculosSubtraidos_2026.xlsx` | 10.211 | 33 | 37,8 MB |
+
+*As dimensões apresentadas correspondem aos valores informados no levantamento exploratório.*
+
+#### Resultados da análise
+
+A análise da distribuição dos registros por bairro permitiu identificar regiões com maior concentração de ocorrências.
+
+A visualização evidencia diferenças na distribuição territorial dos registros de segurança pública no município de São Paulo, permitindo comparar a concentração de ocorrências entre as regiões analisadas.
+
+---
+
+### Base 2 — IBGE (Censo Demográfico 2022)
+
+#### Características da base
+
+| Característica | Resultado informado |
+|---|---|
+| Fonte | IBGE |
+| Referência | Censo Demográfico 2022 |
+| Registros | 10.698 |
+| Colunas | 28 |
+
+Os dados censitários integram o conjunto de informações demográficas e territoriais utilizado pelo BairroIQ.
+
+---
+
+### Base 3 — ObservaSampa (Indicadores municipais)
+
+#### Características da base
+
+| Característica | Resultado |
+|---|---|
+| Fonte | ObservaSampa |
+| Registros | 1.434 |
+| Colunas | 4 |
+| Valores ausentes | Nenhum, segundo a análise apresentada |
+
+#### Estrutura identificada
+
+| Coluna | Descrição |
+|---|---|
+| `Nome` | Identificação do indicador |
+| `Região` | Referência territorial |
+| `Período` | Referência temporal |
+| `Resultado` | Valor apresentado para o indicador |
+
+#### Indicadores mais frequentes
+
+| Código | Indicador | Registros |
+|---|---|---:|
+| 01.01.01 | Quantidade de famílias em situação de extrema pobreza (até 1/4 salário mínimo) | 129 |
+| 11.01.03 | Número de unidades habitacionais entregues por programas habitacionais e parcerias | 129 |
+| 11.01.08 | Total de famílias beneficiárias de Auxílio Aluguel por ano | 129 |
+| 11.01.07 | Número estimado de domicílios em favelas | 129 |
+| 01.02.01 | Quantidade de famílias em situação de pobreza (renda por pessoa de ⅛ até ¼ de salário mínimo) | 129 |
+| 01.05.02 | Famílias em atendimento habitacional provisório por situação de risco e emergência | 129 |
+| 01.02.02 | Quantidade de famílias em situação de baixa renda (renda por pessoa de ¼ até ½ salário mínimo) | 129 |
+| 01.05.03 | Famílias em atendimento habitacional provisório por situação de risco e emergência (%) | 100 |
+| 16.0a.01 | Número de câmeras inseridas no Projeto City Câmeras | 33 |
+| 16.04.01 | Número de armas recolhidas pela Campanha do Desarmamento da GCM | 33 |
+
+#### Resultados da análise
+
+A exploração dos indicadores permitiu observar a evolução da população de São Paulo ao longo dos períodos disponíveis na base analisada.
+
+A distribuição dos registros também evidencia a presença de diferentes categorias de indicadores municipais, com destaque para informações relacionadas à vulnerabilidade socioeconômica, habitação e segurança pública.
 
 ---
 
@@ -210,7 +327,7 @@ Foram testados cenários de sucesso e falha, verificando:
 - Registro de erros simulados.
 - Preservação do status de falha da execução.
 
-O pipeline sintético valida a infraestrutura e o mecanismo de auditoria. A aplicação das regras às fontes reais faz parte da evolução do projeto.
+O pipeline sintético valida a infraestrutura e o mecanismo de auditoria.
 
 ---
 
@@ -280,39 +397,6 @@ A coleta atual representa evidências iniciais de CI/CD, não uma medição comp
 
 ---
 
-## Ingestão de dados — Bronze
-
-A ingestão inicial coleta dados de fontes públicas e os armazena no Volume:
-
-`/Volumes/workspace/bronze/raw/`
-
-### Fontes de dados
-
-| Diretório | Fonte | Conteúdo |
-|---|---|---|
-| `ibge/` | IBGE | Indicadores demográficos e territoriais. |
-| `ssp/` | SSP-SP | Dados de segurança pública. |
-| `observasampa/` | ObservaSampa | Indicadores municipais. |
-| `imoveis/` | Referências imobiliárias | Dados de mercado imobiliário. |
-| `geosampa/` | GeoSampa | Dados geográficos e territoriais. |
-
-### Controles implementados
-
-O pipeline de ingestão contempla:
-
-- Requisições HTTP com retentativas.
-- Download em blocos.
-- Verificação de integridade dos arquivos.
-- Cálculo de hash SHA-256.
-- Comparação com arquivos existentes.
-- Verificação de atualizações por ETag e Last-Modified, quando disponíveis.
-- Registro das execuções em Delta Lake.
-- Tratamento de falhas.
-- Preservação do arquivo existente em caso de falha no download ou na validação do novo conteúdo.
-- Resumo dos resultados de cada execução.
-
----
-
 ## Governança e colaboração
 
 O desenvolvimento segue práticas de **DataOps e DevOps**, incluindo:
@@ -325,5 +409,3 @@ O desenvolvimento segue práticas de **DataOps e DevOps**, incluindo:
 - Implantação controlada.
 - Auditoria persistente.
 - Separação entre infraestrutura, pipelines e dados.
-**Stack proposta:** .
-
