@@ -1,0 +1,46 @@
+resources:
+  jobs:
+    bairroiq_bronze_ddl_job:
+      name: bairroiq-bronze-ddl-job
+
+      description: >-
+        Valida e aplica os cinco DDLs Bronze versionados,
+        preservando tabelas existentes e registrando
+        auditoria em workspace.observability.bronze_ddl_runs.
+
+      max_concurrent_runs: 1
+      timeout_seconds: 1800
+
+      queue:
+        enabled: true
+
+      environments:
+        - environment_key: bronze_serverless
+          spec:
+            environment_version: "2"
+
+      tasks:
+        - task_key: validar_ddls_bronze
+          description: Validar todos os arquivos SQL antes da aplicação.
+          environment_key: bronze_serverless
+          timeout_seconds: 600
+          max_retries: 0
+
+          spark_python_task:
+            python_file: ../bronze_ddl_runner.py
+            source: WORKSPACE
+
+        - task_key: aplicar_ddls_bronze
+          description: Aplicar DDLs idempotentes e persistir auditoria.
+          depends_on:
+            - task_key: validar_ddls_bronze
+          run_if: ALL_SUCCESS
+          environment_key: bronze_serverless
+          timeout_seconds: 1200
+          max_retries: 0
+
+          spark_python_task:
+            python_file: ../bronze_ddl_runner.py
+            source: WORKSPACE
+            parameters:
+              - "--apply"
