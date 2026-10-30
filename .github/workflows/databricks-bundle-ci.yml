@@ -1,11 +1,10 @@
-
 name: BarrioIQ - Databricks Bundle CI
 
 on:
   push:
     branches:
       - main
-      - 'feature/**'
+      - "feature/**"
 
   pull_request:
     branches:
@@ -20,6 +19,7 @@ jobs:
   bundle-validation:
     name: Bundle Static Validation
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
       - name: Checkout repository
@@ -28,65 +28,239 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Install dependencies
         run: pip install PyYAML==6.0.2
 
       - name: Validate Bundle configuration
+        shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
           import yaml
 
-          root = Path("barrioiq_pipeline")
+          root = Path("barrioiq_pipeline").resolve()
+
+          def require(condition, message):
+              if not condition:
+                  raise ValueError(message)
+
+          def read_yaml(path):
+              require(path.is_file(), f"Arquivo ausente: {path}")
+              data = yaml.safe_load(path.read_text(encoding="utf-8"))
+              require(isinstance(data, dict), f"YAML invalido: {path}")
+              return data
+
+          def check_local_file(owner, value):
+              require(
+                  isinstance(value, str) and bool(value),
+                  f"Caminho ausente em {owner}",
+              )
+              require(
+                  not Path(value).is_absolute() and "${" not in value,
+                  f"Esperado caminho local relativo: {value}",
+              )
+              path = (owner.parent / value).resolve()
+              require(
+                  path.is_relative_to(root),
+                  f"Caminho fora do Bundle: {value}",
+              )
+              require(path.is_file(), f"Arquivo nao encontrado: {path}")
+              print(f"ARQUIVO OK: {path.relative_to(root)}")
+              return path
+
           main_file = root / "databricks.yml"
+          config = read_yaml(main_file)
 
-          assert main_file.is_file(), "databricks.yml ausente"
+          require(
+              config.get("bundle", {}).get("name") == "barrioiq_pipeline",
+              "Nome inesperado do Bundle",
+          )
 
-          files = [main_file]
-          files += sorted((root / "resources").rglob("*.yml"))
-          files += sorted((root / "resources").rglob("*.yaml"))
+          # Ler somente os arquivos efetivamente incluidos pelo Bundle.
+          includes = config.get("include") or []
+          require(isinstance(includes, list), "include deve ser uma lista")
 
-          documents = {}
-          for file in files:
-              data = yaml.safe_load(file.read_text(encoding="utf-8"))
-              assert isinstance(data, dict), f"YAML invalido: {file}"
-              documents[file] = data
-              print(f"YAML OK: {file}")
+          files = {main_file}
+          for pattern in includes:
+              require(isinstance(pattern, str), "include invalido")
+              files.update(root.glob(pattern))
 
-          config = documents[main_file]
-          assert config.get("bundle", {}).get("name"), "Nome do Bundle ausente"
+          jobs = {}
+          owners = {}
 
-          jobs = 0
-
-          for file, doc in documents.items():
+          for file in sorted(files):
+              doc = read_yaml(file)
               resources = doc.get("resources") or {}
-              for name, job in (resources.get("jobs") or {}).items():
-                  jobs += 1
+              require(
+                  set(resources).issubset({"jobs"}),
+                  f"Tipo de recurso inesperado em {file}",
+              )
 
-                  for task in job.get("tasks", []):
-                      notebook = (task.get("notebook_task") or {}).get("notebook_path")
-                      if not notebook:
-                          continue
+              for key, job in (resources.get("jobs") or {}).items():
+                  require(key not in jobs, f"Job duplicado: {key}")
+                  require(isinstance(job, dict), f"Job invalido: {key}")
+                  jobs[key] = job
+                  owners[key] = file
 
-                      if notebook.startswith("/") or "${" in notebook:
-                          continue
+          require(
+              set(jobs) == {
+                  "barrioiq_smoke_job",
+                  "bairroiq_bronze_ddl_job",
+              },
+              f"Conjunto inesperado de Jobs: {sorted(jobs)}",
+          )
 
-                      path = (file.parent / notebook).resolve()
-                      candidates = [
-                          path,
-                          path.with_suffix(".ipynb"),
-                          path.with_suffix(".py"),
-                          path.with_suffix(".sql"),
-                      ]
+          tasks_by_job = {}
 
-                      assert any(p.is_file() for p in candidates), (
-                          f"Notebook nao encontrado: {notebook}"
+          for key, job in jobs.items():
+              environments = job.get("environments") or []
+              env_keys = [env["environment_key"] for env in environments]
+              require(
+                  len(env_keys) == len(set(env_keys)),
+                  f"Ambiente duplicado no Job {key}",
+              )
+
+              tasks = job.get("tasks") or []
+              task_keys = [task["task_key"] for task in tasks]
+              require(
+                  bool(tasks) and len(task_keys) == len(set(task_keys)),
+                  f"Tarefas ausentes ou duplicadas no Job {key}",
+              )
+              tasks_by_job[key] = {
+                  task["task_key"]: task for task in tasks
+              }
+
+              for task in tasks:
+                  task_key = task["task_key"]
+                  notebook = task.get("notebook_task")
+                  python = task.get("spark_python_task")
+
+                  require(
+                      (notebook is not None) != (python is not None),
+                      f"Tipo de tarefa inesperado: {key}/{task_key}",
+                  )
+
+                  if notebook is not None:
+                      check_local_file(
+                          owners[key], notebook.get("notebook_path")
                       )
 
-                      print(f"Notebook OK: {notebook}")
+                  if python is not None:
+                      path = check_local_file(
+                          owners[key], python.get("python_file")
+                      )
+                      require(
+                          path.suffix == ".py",
+                          f"Script Python invalido: {path}",
+                      )
+                      compile(path.read_text(encoding="utf-8"), str(path), "exec")
+                      require(
+                          python.get("source") == "WORKSPACE",
+                          f"Source inesperado: {task_key}",
+                      )
+                      require(
+                          task.get("environment_key") in env_keys,
+                          f"Ambiente ausente: {task_key}",
+                      )
 
-          assert jobs > 0, "Nenhum Job encontrado"
-          print(f"Bundle validado estruturalmente: {jobs} Job(s)")
+                  for dep in task.get("depends_on") or []:
+                      require(
+                          dep["task_key"] in task_keys
+                          and dep["task_key"] != task_key,
+                          f"Dependencia invalida: {task_key}",
+                      )
+
+          # Preservar a estrutura do Job de qualidade.
+          smoke = tasks_by_job["barrioiq_smoke_job"]
+          require(
+              set(smoke) == {"validar_ambiente", "validar_qualidade"},
+              "Tarefas inesperadas no Job de qualidade",
+          )
+          require(
+              not smoke["validar_ambiente"].get("depends_on"),
+              "validar_ambiente deve ser a tarefa inicial",
+          )
+          require(
+              smoke["validar_qualidade"].get("depends_on")
+              == [{"task_key": "validar_ambiente"}],
+              "Dependencia do Job de qualidade alterada",
+          )
+
+          # Verificar as protecoes especificas da automacao Bronze.
+          bronze = jobs["bairroiq_bronze_ddl_job"]
+          tasks = tasks_by_job["bairroiq_bronze_ddl_job"]
+
+          require(
+              set(tasks) == {"validar_ddls_bronze", "aplicar_ddls_bronze"},
+              "Tarefas inesperadas no Job Bronze",
+          )
+          require(
+              bronze.get("max_concurrent_runs") == 1,
+              "Job Bronze deve permitir uma execucao por vez",
+          )
+          for field in ("schedule", "trigger", "continuous"):
+              require(
+                  field not in bronze,
+                  f"Job Bronze deve permanecer sem {field}",
+              )
+
+          validate = tasks["validar_ddls_bronze"]
+          apply = tasks["aplicar_ddls_bronze"]
+
+          require(
+              not validate.get("depends_on"),
+              "Validacao Bronze deve ser a tarefa inicial",
+          )
+          require(
+              not validate["spark_python_task"].get("parameters"),
+              "Validacao Bronze nao pode receber parametros de aplicacao",
+          )
+          require(
+              apply.get("depends_on")
+              == [{"task_key": "validar_ddls_bronze"}],
+              "Aplicacao deve depender da validacao Bronze",
+          )
+          require(
+              apply.get("run_if") == "ALL_SUCCESS",
+              "Aplicacao exige validacao bem-sucedida",
+          )
+          require(
+              apply["spark_python_task"].get("parameters") == ["--apply"],
+              "Parametros inesperados na aplicacao Bronze",
+          )
+
+          for task in (validate, apply):
+              require(
+                  task.get("disabled") in (None, False),
+                  "Tarefa Bronze nao pode estar desabilitada",
+              )
+              require(
+                  task.get("max_retries") == 0,
+                  "Retries Bronze devem permanecer desabilitados",
+              )
+              require(
+                  not any(
+                      field in task
+                      for field in (
+                          "new_cluster", "existing_cluster_id", "job_cluster_key"
+                      )
+                  ),
+                  "Tarefas Bronze devem usar o ambiente serverless",
+              )
+              path = check_local_file(
+                  owners["bairroiq_bronze_ddl_job"],
+                  task["spark_python_task"]["python_file"],
+              )
+              require(
+                  path == root / "bronze_ddl_runner.py",
+                  "Executor inesperado no Job Bronze",
+              )
+
+          print("Bundle validado estruturalmente: 2 Job(s)")
+          print("BUNDLE_STATIC_VALIDATION_SUCCESS")
           PY
+
+      - name: Validate Bronze SQL files without applying
+        run: python barrioiq_pipeline/bronze_ddl_runner.py
