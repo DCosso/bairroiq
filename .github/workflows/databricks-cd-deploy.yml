@@ -1,4 +1,3 @@
-
 name: BarrioIQ - Databricks CD Deploy
 
 on:
@@ -20,8 +19,10 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy BarrioIQ Databricks Job
+    name: Deploy BarrioIQ Databricks Jobs
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: databricks-dev
 
     env:
@@ -30,8 +31,6 @@ jobs:
       BARRIOIQ_JOB_ID: ${{ vars.BARRIOIQ_EXISTING_JOB_ID }}
 
     steps:
-      # 1. PREPARAR AMBIENTE
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -40,8 +39,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      # 2. TESTES DE QUALIDADE
-
       - name: Run data quality tests
         run: |
           python -m unittest discover \
@@ -49,12 +46,11 @@ jobs:
             -p "test_barrioiq_quality.py" \
             -v
 
-      # 3. INSTALAR DATABRICKS CLI
+      - name: Validate Bronze DDL files without applying
+        run: python barrioiq_pipeline/bronze_ddl_runner.py
 
       - name: Install Databricks CLI
         uses: databricks/setup-cli@main
-
-      # 4. AUTENTICACAO OAUTH M2M
 
       - name: Obtain scoped OAuth token
         shell: bash
@@ -84,14 +80,13 @@ jobs:
               f"{host}/oidc/v1/token",
               data=urlencode({
                   "grant_type": "client_credentials",
-                  "scope": "jobs workspace"
+                  "scope": "jobs workspace",
               }).encode(),
               headers={
                   "Authorization": f"Basic {credentials}",
-                  "Content-Type":
-                      "application/x-www-form-urlencoded"
+                  "Content-Type": "application/x-www-form-urlencoded",
               },
-              method="POST"
+              method="POST",
           )
 
           with urlopen(request, timeout=30) as response:
@@ -105,314 +100,280 @@ jobs:
           print("OAuth authentication OK")
           PY
 
-      # 5. VERIFICAR JOB EXISTENTE
-
-      - name: Verify existing Job
-        shell: bash
-        run: |
-          test "$BARRIOIQ_JOB_ID" = "604667021938916" || {
-            echo "Unexpected Job ID"
-            exit 1
-          }
-
-          databricks jobs get "$BARRIOIQ_JOB_ID" \
-            --output json > /tmp/job-before.json
-
-          python - <<'PY'
-          import json
-
-          with open("/tmp/job-before.json") as f:
-              job = json.load(f)
-
-          expected = 604667021938916
-          actual = job.get("job_id")
-          name = job.get("settings", {}).get("name", "")
-
-          if actual != expected:
-              raise RuntimeError("Job ID mismatch")
-
-          if not name.endswith("barrioiq-smoke-job"):
-              raise RuntimeError("Unexpected Job name")
-
-          task_keys = {
-              task["task_key"]
-              for task in job.get("settings", {}).get("tasks", [])
-          }
-
-          allowed_keys = {
-              "validar_ambiente",
-              "validar_qualidade"
-          }
-
-          if (
-              "validar_ambiente" not in task_keys
-              or not task_keys.issubset(allowed_keys)
-          ):
-              raise RuntimeError("Unexpected existing tasks")
-
-          print("Existing Job verified")
-          print("Job ID:", actual)
-          print("Tasks before deployment:", sorted(task_keys))
-          PY
-
-      # 6. VALIDAR BUNDLE
-
-      - name: Validate Bundle
-        working-directory: barrioiq_pipeline
-        run: |
-          databricks bundle validate --target dev
-
-      # 7. GERAR PLANO DE DEPLOY
-
-      - name: Generate deployment plan
-        working-directory: barrioiq_pipeline
-        run: |
-          databricks bundle plan \
-            --target dev \
-            --output json > /tmp/barrioiq-plan.json
-
-      # 8. VALIDAR ALTERACOES E IDEMPOTENCIA
-
-      - name: Verify planned changes
+      - name: Verify and snapshot existing quality Job
         shell: bash
         run: |
           python - <<'PY'
           import json
+          import os
+          import subprocess
+          from pathlib import Path
 
-          with open("/tmp/barrioiq-plan.json") as f:
-              data = json.load(f)
+          expected_id = "604667021938916"
 
-          plan = data.get("plan") or {}
-          resource = "resources.jobs.barrioiq_smoke_job"
+          if os.environ["BARRIOIQ_JOB_ID"] != expected_id:
+              raise RuntimeError("Unexpected quality Job ID")
 
-          # Aceitar plano sem alteracoes.
-          if not plan:
-              print("No resource changes required")
-              raise SystemExit(0)
-
-          # Bloquear recursos inesperados.
-          if set(plan) != {resource}:
-              raise RuntimeError(
-                  f"Unexpected resources: {list(plan)}"
-              )
-
-          change = plan[resource]
-          action = change.get("action")
-
-          # Job inalterado.
-          if action == "skip":
-              print("Existing Job is unchanged")
-              raise SystemExit(0)
-
-          # Proibir criacao ou exclusao.
-          if action != "update":
-              raise RuntimeError(
-                  f"Unexpected action: {action}"
-              )
-
-          fields = change.get("changes") or {}
-
-          if not isinstance(fields, dict):
-              raise RuntimeError("Invalid changes structure")
-
-          # Campos permitidos no Job atual.
-          allowed = {
-              "email_notifications",
-              "tasks[task_key='validar_ambiente'].disabled",
-              "tasks[task_key='validar_ambiente'].email_notifications",
-              "tasks[task_key='validar_ambiente'].notebook_task.source",
-              "tasks[task_key='validar_ambiente'].run_if",
-              "tasks[task_key='validar_ambiente'].timeout_seconds",
-              "tasks[task_key='validar_qualidade']",
-              "timeout_seconds",
-              "webhook_notifications",
-          }
-
-          unexpected = set(fields) - allowed
-
-          if unexpected:
-              raise RuntimeError(
-                  f"Unexpected changes: {sorted(unexpected)}"
-              )
-
-          # Preservar notificacoes existentes.
-          notification_fields = {
-              "email_notifications",
-              "webhook_notifications",
-              "tasks[task_key='validar_ambiente'].email_notifications",
-          }
-
-          for key in notification_fields:
-              diff = fields.get(key) or {}
-
-              for value in (
-                  diff.get("remote"),
-                  diff.get("new")
-              ):
-                  if value not in (None, {}, [], ""):
-                      raise RuntimeError(
-                          f"Notification review required: {key}"
-                      )
-
-          # Proteger configuracoes da tarefa existente.
-          expected_defaults = {
-              "tasks[task_key='validar_ambiente'].disabled":
-                  (None, False),
-              "tasks[task_key='validar_ambiente'].notebook_task.source":
-                  (None, "WORKSPACE"),
-              "tasks[task_key='validar_ambiente'].run_if":
-                  (None, "ALL_SUCCESS"),
-              "tasks[task_key='validar_ambiente'].timeout_seconds":
-                  (None, 0),
-              "timeout_seconds":
-                  (None, 0),
-          }
-
-          for key, accepted in expected_defaults.items():
-              if key in fields:
-                  value = fields[key].get("new")
-
-                  if value not in accepted:
-                      raise RuntimeError(
-                          f"Unexpected value for {key}: {value}"
-                      )
-
-          # Validar inclusao da tarefa de qualidade.
-          quality_key = "tasks[task_key='validar_qualidade']"
-
-          if quality_key in fields:
-              task = fields[quality_key].get("new")
-
-              if not isinstance(task, dict):
-                  raise RuntimeError(
-                      "Unexpected quality task structure"
-                  )
-
-              if task.get("task_key") != "validar_qualidade":
-                  raise RuntimeError(
-                      "Unexpected quality task key"
-                  )
-
-              notebook = task.get("notebook_task") or {}
-              path = notebook.get("notebook_path", "")
-
-              if not (
-                  "/.bundle/" in path
-                  and (
-                      path.endswith("/01_quality_smoke")
-                      or path.endswith("/01_quality_smoke.py")
-                  )
-              ):
-                  raise RuntimeError(
-                      f"Unexpected quality notebook path: {path}"
-                  )
-
-              dependencies = task.get("depends_on") or []
-
-              if dependencies != [
-                  {"task_key": "validar_ambiente"}
-              ]:
-                  raise RuntimeError(
-                      "Unexpected task dependencies"
-                  )
-
-              if task.get("disabled") is True:
-                  raise RuntimeError(
-                      "Quality task cannot be disabled"
-                  )
-
-              if task.get("run_if") not in (
-                  None, "ALL_SUCCESS"
-              ):
-                  raise RuntimeError(
-                      "Unexpected execution condition"
-                  )
-
-              print("Quality task configuration approved")
-
-          print("Deployment plan approved")
-          print("Only the existing Job may be updated")
-          PY
-
-      # 9. EXECUTAR DEPLOY DO PLANO APROVADO
-
-      - name: Deploy approved plan
-        working-directory: barrioiq_pipeline
-        run: |
-          databricks bundle deploy \
-            --target dev \
-            --plan /tmp/barrioiq-plan.json \
-            --auto-approve \
-            --fail-on-active-runs
-
-      # 10. VALIDAR JOB APOS DEPLOY
-
-      - name: Verify Job after deployment
-        shell: bash
-        run: |
-          databricks jobs get "$BARRIOIQ_JOB_ID" \
-            --output json > /tmp/job-after.json
-
-          python - <<'PY'
-          import json
-
-          with open("/tmp/job-after.json") as f:
-              job = json.load(f)
-
-          expected_id = 604667021938916
-
-          if job.get("job_id") != expected_id:
-              raise RuntimeError("Job ID changed")
-
+          result = subprocess.run(
+              ["databricks", "jobs", "get", expected_id, "--output", "json"],
+              check=True,
+              capture_output=True,
+              text=True,
+          )
+          job = json.loads(result.stdout)
           settings = job.get("settings") or {}
-          name = settings.get("name", "")
 
-          if not name.endswith("barrioiq-smoke-job"):
-              raise RuntimeError("Unexpected Job name")
+          if str(job.get("job_id")) != expected_id:
+              raise RuntimeError("Quality Job ID mismatch")
+
+          if not settings.get("name", "").endswith("barrioiq-smoke-job"):
+              raise RuntimeError("Unexpected quality Job name")
 
           tasks = {
               task["task_key"]: task
               for task in settings.get("tasks", [])
           }
 
-          expected_tasks = {
-              "validar_ambiente",
-              "validar_qualidade"
-          }
+          if set(tasks) != {"validar_ambiente", "validar_qualidade"}:
+              raise RuntimeError("Unexpected quality Job tasks")
 
-          if set(tasks) != expected_tasks:
-              raise RuntimeError(
-                  f"Unexpected tasks: {list(tasks)}"
-              )
-
-          quality = tasks["validar_qualidade"]
-
-          dependencies = quality.get("depends_on") or []
-
-          if dependencies != [
+          if tasks["validar_qualidade"].get("depends_on") != [
               {"task_key": "validar_ambiente"}
           ]:
+              raise RuntimeError("Unexpected quality Job dependency")
+
+          path = Path(os.environ["RUNNER_TEMP"]) / "quality-before.json"
+          path.write_text(json.dumps(job), encoding="utf-8")
+
+          print("QUALITY_JOB_VERIFIED")
+          PY
+
+      - name: Validate Bundle
+        working-directory: barrioiq_pipeline
+        run: databricks bundle validate --target dev
+
+      - name: Verify existing Bundle binding
+        working-directory: barrioiq_pipeline
+        shell: bash
+        run: |
+          databricks bundle summary \
+            --target dev \
+            --output json > "$RUNNER_TEMP/bundle-before.json"
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["RUNNER_TEMP"]) / "bundle-before.json"
+          data = json.loads(path.read_text(encoding="utf-8"))
+          jobs = (data.get("resources") or {}).get("jobs") or {}
+          smoke = jobs.get("barrioiq_smoke_job") or {}
+
+          if str(smoke.get("id")) != os.environ["BARRIOIQ_JOB_ID"]:
               raise RuntimeError(
-                  "Quality task dependency mismatch"
+                  "Bundle is not bound to the expected quality Job"
               )
 
-          notebook_path = (
-              quality.get("notebook_task") or {}
-          ).get("notebook_path", "")
+          print("QUALITY_JOB_BINDING_VERIFIED")
+          PY
 
-          if not (
-              notebook_path.endswith("/01_quality_smoke")
-              or notebook_path.endswith("/01_quality_smoke.py")
-          ):
-              raise RuntimeError(
-                  "Quality notebook path mismatch"
+      - name: Generate deployment plan
+        working-directory: barrioiq_pipeline
+        run: |
+          databricks bundle plan \
+            --target dev \
+            --output json > "$RUNNER_TEMP/bairroiq-plan.json"
+
+      - name: Verify planned changes
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["RUNNER_TEMP"]) / "bairroiq-plan.json"
+          data = json.loads(path.read_text(encoding="utf-8"))
+
+          if not isinstance(data, dict):
+              raise RuntimeError("Invalid deployment plan document")
+
+          if "plan" not in data or not isinstance(data["plan"], dict):
+              raise RuntimeError("Unexpected deployment plan format")
+
+          allowed_actions = {
+              "resources.jobs.barrioiq_smoke_job": {"skip"},
+              "resources.jobs.bairroiq_bronze_ddl_job": {"create", "skip"},
+          }
+
+          for resource, change in data["plan"].items():
+              if resource not in allowed_actions:
+                  raise RuntimeError(f"Unexpected resource: {resource}")
+
+              if not isinstance(change, dict):
+                  raise RuntimeError(f"Invalid change: {resource}")
+
+              action = change.get("action")
+
+              if action not in allowed_actions[resource]:
+                  raise RuntimeError(
+                      f"Blocked action: {resource} -> {action}"
+                  )
+
+              print(f"APPROVED: {resource} -> {action}")
+
+          print("DEPLOYMENT_PLAN_APPROVED")
+          PY
+
+      - name: Deploy approved plan
+        working-directory: barrioiq_pipeline
+        run: |
+          databricks bundle deploy \
+            --target dev \
+            --plan "$RUNNER_TEMP/bairroiq-plan.json" \
+            --auto-approve \
+            --fail-on-active-runs
+
+      - name: Verify deployed Jobs
+        working-directory: barrioiq_pipeline
+        shell: bash
+        run: |
+          databricks bundle summary \
+            --target dev \
+            --output json > "$RUNNER_TEMP/bundle-after.json"
+
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          temp = Path(os.environ["RUNNER_TEMP"])
+
+          def require(condition, message):
+              if not condition:
+                  raise RuntimeError(message)
+
+          def get_job(job_id):
+              result = subprocess.run(
+                  [
+                      "databricks", "jobs", "get",
+                      str(job_id), "--output", "json",
+                  ],
+                  check=True,
+                  capture_output=True,
+                  text=True,
               )
+              return json.loads(result.stdout)
 
-          print("DEPLOYMENT_VERIFIED")
-          print("Job ID preserved:", expected_id)
-          print("Tasks:", sorted(tasks))
-          print(
-              "Dependency: validar_ambiente -> validar_qualidade"
+          summary = json.loads(
+              (temp / "bundle-after.json").read_text(encoding="utf-8")
           )
+          jobs = (summary.get("resources") or {}).get("jobs") or {}
+
+          require(
+              set(jobs) == {
+                  "barrioiq_smoke_job",
+                  "bairroiq_bronze_ddl_job",
+              },
+              "Unexpected deployed Jobs",
+          )
+
+          smoke_id = str(jobs["barrioiq_smoke_job"].get("id"))
+          bronze_id = str(jobs["bairroiq_bronze_ddl_job"].get("id"))
+
+          require(
+              smoke_id == os.environ["BARRIOIQ_JOB_ID"],
+              "Quality Job binding changed",
+          )
+          require(
+              bronze_id.isdigit() and bronze_id != smoke_id,
+              "Invalid Bronze Job ID",
+          )
+
+          before = json.loads(
+              (temp / "quality-before.json").read_text(encoding="utf-8")
+          )
+          after = get_job(smoke_id)
+
+          require(
+              before.get("settings") == after.get("settings"),
+              "Quality Job settings changed; review required",
+          )
+          print("QUALITY_JOB_SETTINGS_PRESERVED")
+
+          bronze = get_job(bronze_id)
+          require(
+              str(bronze.get("job_id")) == bronze_id,
+              "Bronze Job ID mismatch",
+          )
+
+          settings = bronze.get("settings") or {}
+          require(
+              settings.get("name", "").endswith("bairroiq-bronze-ddl-job"),
+              "Unexpected Bronze Job name",
+          )
+
+          for field in ("schedule", "trigger", "continuous"):
+              require(
+                  not settings.get(field),
+                  f"Unexpected Bronze scheduling configuration: {field}",
+              )
+
+          tasks = {
+              task["task_key"]: task
+              for task in settings.get("tasks", [])
+          }
+          require(
+              set(tasks) == {"validar_ddls_bronze", "aplicar_ddls_bronze"},
+              "Unexpected Bronze tasks",
+          )
+
+          validate = tasks["validar_ddls_bronze"]
+          apply = tasks["aplicar_ddls_bronze"]
+
+          require(
+              not validate.get("depends_on"),
+              "Unexpected validation dependency",
+          )
+          require(
+              not validate.get("spark_python_task", {}).get("parameters"),
+              "Validation task received unexpected parameters",
+          )
+          require(
+              apply.get("depends_on")
+              == [{"task_key": "validar_ddls_bronze"}],
+              "Unexpected Bronze application dependency",
+          )
+          require(
+              apply.get("run_if", "ALL_SUCCESS") == "ALL_SUCCESS",
+              "Unexpected Bronze execution condition",
+          )
+          require(
+              apply.get("spark_python_task", {}).get("parameters")
+              == ["--apply"],
+              "Unexpected Bronze application parameters",
+          )
+
+          for task in (validate, apply):
+              script = task.get("spark_python_task") or {}
+              path = script.get("python_file", "")
+              require(
+                  path.endswith("/bronze_ddl_runner.py"),
+                  "Unexpected Bronze runner path",
+              )
+              require(
+                  script.get("source") == "WORKSPACE",
+                  "Unexpected Bronze script source",
+              )
+              require(
+                  not task.get("disabled"),
+                  "Bronze task is disabled",
+              )
+
+          print(f"QUALITY_JOB_ID: {smoke_id}")
+          print(f"BRONZE_JOB_ID: {bronze_id}")
+          print("BRONZE_JOB_DEPLOYED_NOT_EXECUTED")
           print("BARRIOIQ_CD_SUCCESS")
           PY
