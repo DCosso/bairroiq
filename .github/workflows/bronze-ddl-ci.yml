@@ -1,0 +1,126 @@
+
+name: Bronze SQL CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate-bronze-sql:
+    name: Validate Bronze SQL
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate Bronze DDL files
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path("barrioiq_pipeline/sql/bronze")
+
+          expected = {
+              "001_geo_sampa.sql":
+                  "workspace.bronze.geo_sampa",
+              "002_ibge.sql":
+                  "workspace.bronze.ibge_agregados_basico_distritos",
+              "003_imoveis.sql":
+                  "workspace.bronze.imoveis",
+              "004_observa_sampa.sql":
+                  "workspace.bronze.observa_sampa",
+              "005_ssp.sql":
+                  "workspace.bronze.dados_criminais_unificado_ssp",
+          }
+
+          if not root.is_dir():
+              raise SystemExit("Bronze SQL directory not found")
+
+          actual = {p.name for p in root.glob("*.sql")}
+
+          if actual != set(expected):
+              raise SystemExit(
+                  f"Unexpected SQL files. "
+                  f"Missing: {set(expected) - actual}. "
+                  f"Extra: {actual - set(expected)}"
+              )
+
+          for filename, table in expected.items():
+              path = root / filename
+              sql = path.read_text(encoding="utf-8")
+
+              # Remove line comments
+              sql = re.sub(
+                  r"(?m)^\s*--[^\n]*$",
+                  "",
+                  sql
+              ).strip()
+
+              if not sql.endswith(";"):
+                  raise SystemExit(
+                      f"{filename}: missing semicolon"
+                  )
+
+              statement = sql[:-1].strip()
+
+              if ";" in statement:
+                  raise SystemExit(
+                      f"{filename}: multiple statements"
+                  )
+
+              normalized = re.sub(
+                  r"\s+",
+                  " ",
+                  statement
+              ).upper()
+
+              prefix = (
+                  f"CREATE TABLE IF NOT EXISTS "
+                  f"{table.upper()} ("
+              )
+
+              if not normalized.startswith(prefix):
+                  raise SystemExit(
+                      f"{filename}: invalid CREATE TABLE"
+                  )
+
+              if "USING DELTA" not in normalized:
+                  raise SystemExit(
+                      f"{filename}: USING DELTA missing"
+                  )
+
+              forbidden = [
+                  r"\bDROP\b",
+                  r"\bTRUNCATE\b",
+                  r"\bDELETE\s+FROM\b",
+                  r"\bCREATE\s+OR\s+REPLACE\b",
+                  r"\bINSERT\s+INTO\b",
+                  r"\bMERGE\s+INTO\b",
+              ]
+
+              for pattern in forbidden:
+                  if re.search(pattern, normalized):
+                      raise SystemExit(
+                          f"{filename}: forbidden operation"
+                      )
+
+              print(f"PASS: {filename}")
+
+          print("All five Bronze DDL files passed static checks.")
+          PY
