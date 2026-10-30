@@ -1,4 +1,3 @@
-
 # BairroIQ — Inteligência Geográfica para Moradia e Negócios
 
 ## Sobre o projeto
@@ -23,13 +22,13 @@ Desenvolver um MVP que demonstre a integração de dados públicos, o cálculo r
 
 ## Pilares de análise
 
-| Pilar | Objetivo |
-|---|---|
-| Custo de vida | Analisar referências de preços de moradia e outros custos disponíveis. |
-| Segurança | Avaliar indicadores públicos relacionados à criminalidade. |
-| Mobilidade | Investigar transporte público e conectividade urbana. |
-| Infraestrutura | Considerar parques, equipamentos urbanos e serviços públicos. |
-| Empregos e serviços | Analisar atividades econômicas, estabelecimentos e oportunidades. |
+| **Pilar**           | **Objetivo**                                                           |
+| ------------------- | ---------------------------------------------------------------------- |
+| Custo de vida       | Analisar referências de preços de moradia e outros custos disponíveis. |
+| Segurança           | Avaliar indicadores públicos relacionados à criminalidade.             |
+| Mobilidade          | Investigar transporte público e conectividade urbana.                  |
+| Infraestrutura      | Considerar parques, equipamentos urbanos e serviços públicos.          |
+| Empregos e serviços | Analisar atividades econômicas, estabelecimentos e oportunidades.      |
 
 ## Escopo geográfico
 
@@ -51,11 +50,11 @@ O produto será uma aplicação web interativa para:
 
 O projeto adota a **arquitetura Medallion**, organizada em três camadas:
 
-| Camada | Responsabilidade | Situação |
-|---|---|---|
-| Bronze | Receber e preservar os dados brutos das fontes públicas. | Ingestão inicial implementada |
-| Silver | Limpar, padronizar, validar e integrar os dados. | Schema provisionado |
-| Gold | Disponibilizar indicadores consolidados para análises e aplicações. | Schema provisionado |
+| **Camada** | **Responsabilidade**                                                | **Situação**                  |
+| ---------- | ------------------------------------------------------------------- | ----------------------------- |
+| Bronze     | Receber e preservar os dados brutos das fontes públicas.            | Ingestão realizada e cinco tabelas Delta populadas |
+| Silver     | Limpar, padronizar, validar e integrar os dados.                    | Schema provisionado           |
+| Gold       | Disponibilizar indicadores consolidados para análises e aplicações. | Schema provisionado           |
 
 A infraestrutura contempla também uma camada independente de observabilidade.
 
@@ -80,19 +79,19 @@ A evolução arquitetural contempla processamento batch e incremental, além de 
 
 ## Tecnologias utilizadas
 
-| Tecnologia | Finalidade |
-|---|---|
-| GitHub | Versionamento, colaboração e revisão de código por Pull Requests. |
-| GitHub Actions | Automação de integração e entrega contínuas. |
-| Terraform | Provisionamento e gerenciamento da infraestrutura como código. |
-| HCP Terraform | Gerenciamento remoto do estado Terraform. |
-| Databricks Free | Ambiente de execução dos pipelines de dados. |
-| Apache Spark / PySpark | Processamento distribuído e transformação de dados. |
-| Unity Catalog | Organização e governança dos recursos de dados. |
-| Delta Lake | Persistência transacional e auditoria. |
-| Databricks Bundles | Definição e publicação versionada de Jobs. |
-| Python | Ingestão de fontes, validação e automações. |
-| Service Principal + OAuth | Autenticação das automações de deploy. |
+| **Tecnologia**            | **Finalidade**                                                    |
+| ------------------------- | ----------------------------------------------------------------- |
+| GitHub                    | Versionamento, colaboração e revisão de código por Pull Requests. |
+| GitHub Actions            | Automação de integração e entrega contínuas.                      |
+| Terraform                 | Provisionamento e gerenciamento da infraestrutura como código.    |
+| HCP Terraform             | Gerenciamento remoto do estado Terraform.                         |
+| Databricks Free           | Ambiente de execução dos pipelines de dados.                      |
+| Apache Spark / PySpark    | Processamento distribuído e transformação de dados.               |
+| Unity Catalog             | Organização e governança dos recursos de dados.                   |
+| Delta Lake                | Persistência transacional e auditoria.                            |
+| Databricks Bundles        | Definição e publicação versionada de Jobs.                        |
+| Python                    | Ingestão de fontes, validação e automações.                       |
+| Service Principal + OAuth | Autenticação das automações de deploy.                            |
 
 ---
 
@@ -143,6 +142,7 @@ As alterações submetidas ao repositório passam por verificações automatizad
 - Verificações de Terraform.
 - Validação das configurações dos Databricks Bundles.
 - Verificações de consistência do código e dos artefatos de implantação.
+- Validação dos cinco DDLs Bronze, incluindo testes que rejeitam arquivos ausentes, adicionais e instruções SQL fora do padrão permitido.
 
 As regras de proteção da branch `main` exigem revisão e aprovação por Pull Request, além dos checks configurados.
 
@@ -155,6 +155,12 @@ A autenticação utiliza **Service Principal e OAuth**, sem necessidade de armaz
 O processo utiliza Databricks Bundles para gerenciar a implantação do Job existente, evitando a criação indevida de recursos duplicados.
 
 O deploy é controlado pelos workflows associados à branch `main` e pelas respectivas condições de execução.
+
+O Bundle também publica o Job `bairroiq_bronze_ddl_job`, executado em ambiente serverless. Ele possui duas tarefas dependentes: `validar_ddls_bronze` (verifica os cinco scripts SQL) e `aplicar_ddls_bronze` (aplica os DDLs somente quando a validação é bem-sucedida). O Job permite apenas uma execução simultânea e não possui agendamento recorrente próprio.
+
+O workflow [`databricks-cd-deploy.yml`](.github/workflows/databricks-cd-deploy.yml) valida os testes e o Bundle, gera e verifica um plano de deploy, preserva as configurações do Job de qualidade existente, publica os recursos e dispara o Job Bronze. A execução é acompanhada até a confirmação de sucesso das duas tarefas, com token de idempotência por tentativa e falha explícita do GitHub Actions caso a execução não seja concluída corretamente.
+
+O fluxo foi validado com sucesso no [PR #16](https://github.com/DCosso/bairroiq/pull/16) e na [execução #40985543632 do GitHub Actions](https://github.com/DCosso/bairroiq/actions/runs/40985543632). O Job Bronze `662864236977825` concluiu a execução `69670523283305` com resultado `TERMINATED / SUCCESS`.
 
 ### Fluxo de desenvolvimento
 
@@ -181,13 +187,13 @@ A ingestão inicial coleta dados de fontes públicas e os armazena no Volume:
 
 ### Fontes de dados
 
-| Diretório | Fonte | Conteúdo |
-|---|---|---|
-| `ibge/` | IBGE | Indicadores demográficos e territoriais. |
-| `ssp/` | SSP-SP | Dados de segurança pública. |
-| `observasampa/` | ObservaSampa | Indicadores municipais. |
-| `imoveis/` | Referências imobiliárias | Dados de mercado imobiliário. |
-| `geosampa/` | GeoSampa | Dados geográficos e territoriais. |
+| **Diretório**   | **Fonte**                | **Conteúdo**                             |
+| --------------- | ------------------------ | ---------------------------------------- |
+| `ibge/`         | IBGE                     | Indicadores demográficos e territoriais. |
+| `ssp/`          | SSP-SP                   | Dados de segurança pública.              |
+| `observasampa/` | ObservaSampa             | Indicadores municipais.                  |
+| `imoveis/`      | Referências imobiliárias | Dados de mercado imobiliário.            |
+| `geosampa/`     | GeoSampa                 | Dados geográficos e territoriais.        |
 
 ### Controles implementados
 
@@ -204,6 +210,22 @@ O pipeline de ingestão contempla:
 - Preservação do arquivo existente em caso de falha no download ou na validação do novo conteúdo.
 - Resumo dos resultados de cada execução.
 
+A ingestão inicial de dados reais foi concluída. Os arquivos estão armazenados no Volume e as cinco tabelas Delta Bronze correspondentes já estão **populadas**, conforme validações realizadas no Databricks.
+
+### Tabelas Delta Bronze
+
+| **Fonte** | **Tabela** |
+| --------- | ---------- |
+| GeoSampa | `workspace.bronze.geo_sampa` |
+| IBGE | `workspace.bronze.ibge_agregados_basico_distritos` |
+| Imóveis | `workspace.bronze.imoveis` |
+| ObservaSampa | `workspace.bronze.observa_sampa` |
+| SSP-SP | `workspace.bronze.dados_criminais_unificado_ssp` |
+
+As cinco estruturas são versionadas em [`barrioiq_pipeline/sql/bronze/`](barrioiq_pipeline/sql/bronze/). O executor [`bronze_ddl_runner.py`](barrioiq_pipeline/bronze_ddl_runner.py) valida exatamente os cinco arquivos esperados e aplica comandos `CREATE TABLE IF NOT EXISTS` com `USING DELTA`, sem substituir tabelas existentes. A validação sem `--apply` não executa DDLs. A etapa com `--apply` cria tabelas quando necessário e verifica sua existência e formato Delta.
+
+O **Job de DDLs** é independente da ingestão dos arquivos e da carga dos registros: ele administra as estruturas das tabelas, não recarrega os dados reais.
+
 ---
 
 ## Análise Exploratória de Dados (EDA)
@@ -214,14 +236,14 @@ Foram analisados seis arquivos de segurança pública disponibilizados pela Secr
 
 #### Arquivos analisados
 
-| Arquivo | Registros informados | Colunas informadas | Tamanho |
-|---|---:|---:|---:|
-| `CelularesSubtraidos_2026.xlsx` | 10.211 | 33 | 61,7 MB |
-| `DadosProdutividade_2026.xlsx` | 10.211 | 33 | 110,5 MB |
-| `MDIP_2026.xlsx` | 10.211 | 33 | 2,0 MB |
-| `ObjetosSubtraidos_2026.xlsx` | 10.211 | 33 | 288,4 MB |
-| `SPDadosCriminais_2026.xlsx` | 10.211 | 33 | 120,4 MB |
-| `VeiculosSubtraidos_2026.xlsx` | 10.211 | 33 | 37,8 MB |
+| **Arquivo**                     | **Registros informados** | **Colunas informadas** | **Tamanho** |
+| ------------------------------- | ------------------------ | ---------------------- | ----------- |
+| `CelularesSubtraidos_2026.xlsx` | 10.211                   | 33                     | 61,7 MB     |
+| `DadosProdutividade_2026.xlsx`  | 10.211                   | 33                     | 110,5 MB    |
+| `MDIP_2026.xlsx`                | 10.211                   | 33                     | 2,0 MB      |
+| `ObjetosSubtraidos_2026.xlsx`   | 10.211                   | 33                     | 288,4 MB    |
+| `SPDadosCriminais_2026.xlsx`    | 10.211                   | 33                     | 120,4 MB    |
+| `VeiculosSubtraidos_2026.xlsx`  | 10.211                   | 33                     | 37,8 MB     |
 
 *As dimensões apresentadas correspondem aos valores informados no levantamento exploratório.*
 
@@ -237,12 +259,12 @@ A visualização evidencia diferenças na distribuição territorial dos registr
 
 #### Características da base
 
-| Característica | Resultado informado |
-|---|---|
-| Fonte | IBGE |
-| Referência | Censo Demográfico 2022 |
-| Registros | 10.698 |
-| Colunas | 28 |
+| **Característica** | **Resultado informado** |
+| ------------------ | ----------------------- |
+| Fonte              | IBGE                    |
+| Referência         | Censo Demográfico 2022  |
+| Registros          | 10.698                  |
+| Colunas            | 28                      |
 
 Os dados censitários integram o conjunto de informações demográficas e territoriais utilizado pelo BairroIQ.
 
@@ -252,36 +274,36 @@ Os dados censitários integram o conjunto de informações demográficas e terri
 
 #### Características da base
 
-| Característica | Resultado |
-|---|---|
-| Fonte | ObservaSampa |
-| Registros | 1.434 |
-| Colunas | 4 |
-| Valores ausentes | Nenhum, segundo a análise apresentada |
+| **Característica** | **Resultado**                         |
+| ------------------ | ------------------------------------- |
+| Fonte              | ObservaSampa                          |
+| Registros          | 1.434                                 |
+| Colunas            | 4                                     |
+| Valores ausentes   | Nenhum, segundo a análise apresentada |
 
 #### Estrutura identificada
 
-| Coluna | Descrição |
-|---|---|
-| `Nome` | Identificação do indicador |
-| `Região` | Referência territorial |
-| `Período` | Referência temporal |
+| **Coluna**  | **Descrição**                      |
+| ----------- | ---------------------------------- |
+| `Nome`      | Identificação do indicador         |
+| `Região`    | Referência territorial             |
+| `Período`   | Referência temporal                |
 | `Resultado` | Valor apresentado para o indicador |
 
 #### Indicadores mais frequentes
 
-| Código | Indicador | Registros |
-|---|---|---:|
-| 01.01.01 | Quantidade de famílias em situação de extrema pobreza (até 1/4 salário mínimo) | 129 |
-| 11.01.03 | Número de unidades habitacionais entregues por programas habitacionais e parcerias | 129 |
-| 11.01.08 | Total de famílias beneficiárias de Auxílio Aluguel por ano | 129 |
-| 11.01.07 | Número estimado de domicílios em favelas | 129 |
-| 01.02.01 | Quantidade de famílias em situação de pobreza (renda por pessoa de ⅛ até ¼ de salário mínimo) | 129 |
-| 01.05.02 | Famílias em atendimento habitacional provisório por situação de risco e emergência | 129 |
-| 01.02.02 | Quantidade de famílias em situação de baixa renda (renda por pessoa de ¼ até ½ salário mínimo) | 129 |
-| 01.05.03 | Famílias em atendimento habitacional provisório por situação de risco e emergência (%) | 100 |
-| 16.0a.01 | Número de câmeras inseridas no Projeto City Câmeras | 33 |
-| 16.04.01 | Número de armas recolhidas pela Campanha do Desarmamento da GCM | 33 |
+| **Código** | **Indicador**                                                                                  | **Registros** |
+| ---------- | ---------------------------------------------------------------------------------------------- | ------------- |
+| 01.01.01   | Quantidade de famílias em situação de extrema pobreza (até 1/4 salário mínimo)                 | 129           |
+| 11.01.03   | Número de unidades habitacionais entregues por programas habitacionais e parcerias             | 129           |
+| 11.01.08   | Total de famílias beneficiárias de Auxílio Aluguel por ano                                     | 129           |
+| 11.01.07   | Número estimado de domicílios em favelas                                                       | 129           |
+| 01.02.01   | Quantidade de famílias em situação de pobreza (renda por pessoa de ⅛ até ¼ de salário mínimo)  | 129           |
+| 01.05.02   | Famílias em atendimento habitacional provisório por situação de risco e emergência             | 129           |
+| 01.02.02   | Quantidade de famílias em situação de baixa renda (renda por pessoa de ¼ até ½ salário mínimo) | 129           |
+| 01.05.03   | Famílias em atendimento habitacional provisório por situação de risco e emergência (%)         | 100           |
+| 16.0a.01   | Número de câmeras inseridas no Projeto City Câmeras                                            | 33            |
+| 16.04.01   | Número de armas recolhidas pela Campanha do Desarmamento da GCM                                | 33            |
 
 #### Resultados da análise
 
@@ -374,13 +396,23 @@ Registra informações relacionadas à ingestão dos arquivos:
 
 ### Estados da ingestão
 
-| Status | Significado |
-|---|---|
-| NOVO | Arquivo baixado pela primeira vez. |
-| ATUALIZADO | Arquivo existente substituído por uma nova versão. |
-| SEM_ALTERACAO | Download realizado sem alteração no conteúdo. |
+| **Status**     | **Significado**                                       |
+| -------------- | ----------------------------------------------------- |
+| NOVO           | Arquivo baixado pela primeira vez.                    |
+| ATUALIZADO     | Arquivo existente substituído por uma nova versão.    |
+| SEM_ALTERACAO  | Download realizado sem alteração no conteúdo.         |
 | NAO_MODIFICADO | Fonte confirmou ausência de atualização via HTTP 304. |
-| ERRO | Falha durante download, validação ou processamento. |
+| ERRO           | Falha durante download, validação ou processamento.   |
+
+### Auditoria dos DDLs Bronze
+
+Tabela Delta:
+
+`workspace.observability.bronze_ddl_runs`
+
+Registra os eventos `STARTED`, `SUCCESS` e `FAILED` da aplicação dos DDLs, com identificadores da execução e do evento, horário, arquivo SQL, tabela de destino, hash SHA-256, indicação de existência anterior da tabela, duração e mensagem de erro quando aplicável.
+
+A auditoria foi consultada e validada após a execução automatizada do Job Bronze, com registros correspondentes aos cinco scripts SQL.
 
 ### Evidências DORA
 
