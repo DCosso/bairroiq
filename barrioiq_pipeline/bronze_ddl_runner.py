@@ -16,7 +16,23 @@ from pathlib import Path
 from uuid import uuid4
 
 
-SQL_DIR = Path(__file__).resolve().parent / "sql" / "bronze"
+def resolve_script_dir():
+    # O launcher pode executar o arquivo via exec sem definir __file__.
+    filename = (
+        globals().get("__file__")
+        or resolve_script_dir.__code__.co_filename
+    )
+    path = Path(filename).resolve()
+
+    if not path.is_file():
+        raise RuntimeError(
+            f"Arquivo do executor nao encontrado: {path}"
+        )
+
+    return path.parent
+
+
+SQL_DIR = resolve_script_dir() / "sql" / "bronze"
 AUDIT_TABLE = "workspace.observability.bronze_ddl_runs"
 
 EXPECTED = {
