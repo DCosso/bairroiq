@@ -1,10 +1,9 @@
-
 name: BarrioIQ - Databricks CD Preview
 
 on:
   push:
     branches:
-      - feature/databricks-initial-setup
+      - feature/bronze-ddl-automation
     paths:
       - "barrioiq_pipeline/**"
       - ".github/workflows/databricks-cd-preview.yml"
@@ -14,10 +13,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: barrioiq-databricks-dev
+  cancel-in-progress: false
+
 jobs:
   deployment-preview:
     name: Preview Databricks Deployment
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: databricks-dev
 
     defaults:
@@ -31,6 +35,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate Bronze DDL files without applying
+        run: python bronze_ddl_runner.py
 
       - name: Install Databricks CLI
         uses: databricks/setup-cli@main
@@ -63,14 +75,13 @@ jobs:
               f"{host}/oidc/v1/token",
               data=urlencode({
                   "grant_type": "client_credentials",
-                  "scope": "jobs workspace"
+                  "scope": "jobs workspace",
               }).encode(),
               headers={
                   "Authorization": f"Basic {credentials}",
-                  "Content-Type":
-                      "application/x-www-form-urlencoded"
+                  "Content-Type": "application/x-www-form-urlencoded",
               },
-              method="POST"
+              method="POST",
           )
 
           with urlopen(request, timeout=30) as response:
@@ -87,60 +98,85 @@ jobs:
       - name: Validate Databricks Bundle
         run: databricks bundle validate --target dev
 
-      - name: Preview deployment changes
+      - name: Generate deployment plan
         shell: bash
         run: |
           databricks bundle plan \
             --target dev \
-            --output json > /tmp/barrioiq-plan.json
+            --output json > "$RUNNER_TEMP/bairroiq-plan.json"
 
+      - name: Inspect and validate planned resource actions
+        shell: bash
+        run: |
           python - <<'PY'
           import json
+          import os
+          from pathlib import Path
 
-          with open("/tmp/barrioiq-plan.json") as f:
-              data = json.load(f)
+          path = Path(os.environ["RUNNER_TEMP"]) / "bairroiq-plan.json"
+          data = json.loads(path.read_text(encoding="utf-8"))
 
-          plan = data.get("plan") or {}
-          resource = "resources.jobs.barrioiq_smoke_job"
+          if not isinstance(data, dict):
+              raise RuntimeError("Invalid deployment plan document")
+
+          if "plan" not in data or not isinstance(data["plan"], dict):
+              raise RuntimeError(
+                  "Unexpected plan format: expected a 'plan' object"
+              )
+
+          plan = data["plan"]
+
+          smoke = "resources.jobs.barrioiq_smoke_job"
+          bronze = "resources.jobs.bairroiq_bronze_ddl_job"
+
+          # Politica inicial: preservar o Job atual e permitir
+          # somente a criacao do Job Bronze ou recursos inalterados.
+          allowed_actions = {
+              smoke: {"skip"},
+              bronze: {"create", "skip"},
+          }
+
+          errors = []
+
+          for resource, change in sorted(plan.items()):
+              if not isinstance(change, dict):
+                  errors.append(f"Invalid change structure: {resource}")
+                  continue
+
+              action = change.get("action")
+              fields = change.get("changes")
+              if fields is None:
+                  fields = {}
+
+              print(f"RESOURCE: {resource}")
+              print(f"ACTION: {action}")
+
+              if not isinstance(fields, dict):
+                  errors.append(f"Invalid changes structure: {resource}")
+                  continue
+
+              for field in sorted(fields):
+                  print(f"  FIELD: {field}")
+
+              if resource not in allowed_actions:
+                  errors.append(f"Unexpected resource: {resource}")
+                  continue
+
+              if action not in allowed_actions[resource]:
+                  errors.append(
+                      f"Action requires review: {resource} -> {action}"
+                  )
+
+          if errors:
+              raise RuntimeError("\n".join(errors))
 
           if not plan:
               print("NO RESOURCE CHANGES")
-              print("Bundle preview approved")
 
-          else:
-              if set(plan) != {resource}:
-                  raise RuntimeError(
-                      f"Unexpected resources: {list(plan)}"
-                  )
-
-              change = plan[resource]
-              action = change.get("action")
-
-              if action not in ("update", "skip"):
-                  raise RuntimeError(
-                      f"Unexpected action: {action}"
-                  )
-
-              print("RESOURCE:", resource)
-              print("ACTION:", action)
-
-              fields = change.get("changes") or {}
-
-              if not isinstance(fields, dict):
-                  raise RuntimeError(
-                      "Invalid changes structure"
-                  )
-
-              print("CHANGED FIELDS:")
-
-              for field in sorted(fields):
-                  print(" -", field)
-
-          print("NO JOB CREATION")
-          print("NO JOB DELETION")
+          print("PREVIEW_RESOURCE_ACTIONS_ACCEPTED")
           print("NO DEPLOYMENT EXECUTED")
+          print("NO BRONZE DDL EXECUTED")
           PY
 
       - name: Preview completed
-        run: |
-          echo "BARRIOIQ_CD_PREVIEW_SUCCESS"
+        run: echo "BARRIOIQ_CD_PREVIEW_SUCCESS"
