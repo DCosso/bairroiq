@@ -1,0 +1,53 @@
+
+name: BairroIQ - Silver ObservaSampa CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+    paths:
+      - "barrioiq_pipeline/silver_observasampa_runner.py"
+      - "tests/test_silver_observasampa_runner.py"
+      - ".github/workflows/silver-observasampa-ci.yml"
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "barrioiq_pipeline/silver_observasampa_runner.py"
+      - "tests/test_silver_observasampa_runner.py"
+      - ".github/workflows/silver-observasampa-ci.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  silver-observasampa-tests:
+    name: ObservaSampa runner unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify Python syntax
+        run: |
+          python -m py_compile \
+            barrioiq_pipeline/silver_observasampa_runner.py \
+            tests/test_silver_observasampa_runner.py
+
+      - name: Run ObservaSampa tests
+        run: |
+          python -m unittest discover \
+            -s tests \
+            -p "test_silver_observasampa_runner.py" \
+            -v
