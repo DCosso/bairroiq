@@ -178,6 +178,7 @@ class TestSilverIBGESQL(unittest.TestCase):
             "SQL deve terminar com ponto e virgula",
         )
 
+
     def test_02_expected_target(self):
         pattern = (
             rf"^CREATE\s+OR\s+REPLACE\s+TABLE\s+"
@@ -186,9 +187,10 @@ class TestSilverIBGESQL(unittest.TestCase):
         )
 
         self.assertRegex(
-            self.sql.upper(),
-            pattern.upper(),
+            self.sql,
+            re.compile(pattern, flags=re.IGNORECASE),
         )
+
 
     def test_03_expected_source(self):
         self.assertRegex(
