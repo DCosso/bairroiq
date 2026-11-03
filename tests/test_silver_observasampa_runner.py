@@ -206,11 +206,37 @@ class TestValues(TestCase):
             (Decimal("-3.5"), "OK"),
         )
 
-    def test_reject_ambiguous_thousands(self):
-        self.assertEqual(
-            runner.parse_numeric("1.234"),
-            (None, "AMBIGUO"),
-        )
+
+def test_reject_ambiguous_thousands(self):
+    # Ponto com tres casas permanece ambiguo.
+    self.assertEqual(
+        runner.parse_numeric("1.234"),
+        (None, "AMBIGUO"),
+    )
+
+    # Virgula e separador decimal na ObservaSampa.
+    self.assertEqual(
+        runner.parse_numeric("1,234"),
+        (Decimal("1.234"), "OK"),
+    )
+
+    # Percentuais e taxas com tres casas decimais.
+    self.assertEqual(
+        runner.parse_numeric("87,976"),
+        (Decimal("87.976"), "OK"),
+    )
+
+    self.assertEqual(
+        runner.parse_numeric("100,034"),
+        (Decimal("100.034"), "OK"),
+    )
+
+    # Empregos formais permanecem contagens inteiras.
+    self.assertEqual(
+        runner.parse_numeric("106896"),
+        (Decimal("106896"), "OK"),
+    )
+
 
         self.assertEqual(
             runner.parse_numeric("1,234"),
