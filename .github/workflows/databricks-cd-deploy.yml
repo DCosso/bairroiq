@@ -284,6 +284,10 @@ jobs:
           # Silver IBGE:
           #   Criar, se necessario, ou preservar.
           #
+          # Silver SSP:
+          #   Criar o novo Job ou preservar se ja implantado.
+          #   Nunca atualizar, excluir ou executar automaticamente.
+          #
           # Qualquer outro recurso ou acao e bloqueado.
           #
           # ==========================================
@@ -297,6 +301,10 @@ jobs:
                   "skip",
               },
               "resources.jobs.bairroiq_silver_ibge_check_job": {
+                  "create",
+                  "skip",
+              },
+              "resources.jobs.bairroiq_silver_ssp_check_job": {
                   "create",
                   "skip",
               },
@@ -393,7 +401,7 @@ jobs:
           )
 
           # ==========================================
-          # VALIDAR OS TRES JOBS DO BUNDLE
+          # VALIDAR OS QUATRO JOBS DO BUNDLE
           # ==========================================
 
           require(
@@ -401,6 +409,7 @@ jobs:
                   "barrioiq_smoke_job",
                   "bairroiq_bronze_ddl_job",
                   "bairroiq_silver_ibge_check_job",
+                  "bairroiq_silver_ssp_check_job",
               },
               "Unexpected deployed Jobs",
           )
@@ -417,6 +426,10 @@ jobs:
               jobs["bairroiq_silver_ibge_check_job"].get("id")
           )
 
+          ssp_id = str(
+              jobs["bairroiq_silver_ssp_check_job"].get("id")
+          )
+
           require(
               smoke_id == os.environ["BARRIOIQ_JOB_ID"],
               "Quality Job binding changed",
@@ -431,6 +444,12 @@ jobs:
               silver_id.isdigit()
               and silver_id not in {smoke_id, bronze_id},
               "Invalid Silver Job ID",
+          )
+
+          require(
+              ssp_id.isdigit()
+              and ssp_id not in {smoke_id, bronze_id, silver_id},
+              "Invalid SSP Job ID or duplicate binding",
           )
 
           # ==========================================
@@ -680,13 +699,153 @@ jobs:
           print("SILVER_JOB_SETTINGS_VERIFIED")
 
           # ==========================================
+          # VALIDAR NOVO JOB SILVER SSP-SP
+          # ==========================================
+          #
+          # Somente um Job novo e permitido.
+          # Uma unica tarefa Serverless, --check.
+          # Sem schedule, trigger, continuous, retries ou escrita.
+          # O CD NAO executa este Job.
+          # ==========================================
+
+          ssp = get_job(ssp_id)
+
+          require(
+              str(ssp.get("job_id")) == ssp_id,
+              "SSP Job ID mismatch",
+          )
+
+          ssp_settings = ssp.get("settings") or {}
+
+          require(
+              ssp_settings.get("name", "").endswith(
+                  "bairroiq-silver-ssp-check-job"
+              ),
+              "Unexpected SSP Job name",
+          )
+
+          for field in ("schedule", "trigger", "continuous"):
+              require(
+                  not ssp_settings.get(field),
+                  f"Unexpected SSP scheduling: {field}",
+              )
+
+          require(
+              ssp_settings.get("max_concurrent_runs") == 1,
+              "Unexpected SSP concurrency",
+          )
+
+          require(
+              ssp_settings.get("timeout_seconds") == 2400,
+              "Unexpected SSP Job timeout",
+          )
+
+          require(
+              (ssp_settings.get("queue") or {}).get("enabled") is True,
+              "SSP queue must be enabled",
+          )
+
+          ssp_tasks = ssp_settings.get("tasks") or []
+
+          require(
+              len(ssp_tasks) == 1
+              and ssp_tasks[0].get("task_key")
+              == "validar_silver_ssp_spatial",
+              "Unexpected SSP task set",
+          )
+
+          ssp_task = ssp_tasks[0]
+
+          require(
+              not ssp_task.get("depends_on"),
+              "Unexpected SSP task dependency",
+          )
+
+          require(
+              ssp_task.get("max_retries", 0) == 0,
+              "SSP retries must be disabled",
+          )
+
+          require(
+              ssp_task.get("timeout_seconds") == 2100,
+              "Unexpected SSP task timeout",
+          )
+
+          require(
+              ssp_task.get("environment_key") == "ssp_serverless",
+              "Unexpected SSP environment binding",
+          )
+
+          require(
+              not ssp_task.get("disabled"),
+              "SSP validation task is disabled",
+          )
+
+          require(
+              not any(
+                  field in ssp_task
+                  for field in (
+                      "new_cluster",
+                      "existing_cluster_id",
+                      "job_cluster_key",
+                  )
+              ),
+              "SSP must use Serverless environment",
+          )
+
+          ssp_script = ssp_task.get("spark_python_task") or {}
+
+          require(
+              ssp_script.get("source") == "WORKSPACE",
+              "Unexpected SSP script source",
+          )
+
+          require(
+              ssp_script.get("python_file", "").endswith(
+                  "/silver_ssp_spatial_runner.py"
+              ),
+              "Unexpected SSP runner path",
+          )
+
+          require(
+              ssp_script.get("parameters") == ["--check"],
+              "SSP must use --check only",
+          )
+
+          ssp_envs = {
+              item.get("environment_key"): item.get("spec") or {}
+              for item in (ssp_settings.get("environments") or [])
+          }
+
+          require(
+              set(ssp_envs) == {"ssp_serverless"},
+              "Unexpected SSP environments",
+          )
+
+          ssp_spec = ssp_envs["ssp_serverless"]
+
+          require(
+              str(ssp_spec.get("environment_version")) == "2",
+              "Unexpected SSP environment version",
+          )
+
+          require(
+              ssp_spec.get("dependencies") == ["geopandas==1.1.1"],
+              "Unexpected SSP dependencies",
+          )
+
+          print("SSP_JOB_SETTINGS_VERIFIED")
+
+          # ==========================================
           # RESUMO DO DEPLOY
           # ==========================================
 
           print(f"QUALITY_JOB_ID: {smoke_id}")
           print(f"BRONZE_JOB_ID: {bronze_id}")
           print(f"SILVER_JOB_ID: {silver_id}")
+          print(f"SSP_JOB_ID: {ssp_id}")
 
+          print("SSP_JOB_DEPLOYED_NOT_EXECUTED")
           print("SILVER_JOB_DEPLOYED_NOT_EXECUTED")
           print("BRONZE_JOB_DEPLOYED_NOT_EXECUTED")
           print("BARRIOIQ_CD_DEPLOY_SUCCESS")
@@ -698,7 +857,8 @@ jobs:
       #
       # Importante:
       # O CD continua executando somente a Bronze.
-      # O Job Silver sera implantado, mas nao executado.
+      # Os Jobs Silver IBGE e SSP serao implantados,
+      # mas nao executados automaticamente.
       #
       # ==============================================
 
