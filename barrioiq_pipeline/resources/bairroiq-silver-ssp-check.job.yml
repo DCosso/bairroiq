@@ -13,7 +13,12 @@
 #   - Sem agendamento, trigger ou execucao continua
 #   - Sem repeticoes automaticas
 #   - Uma execucao simultanea no maximo
-#   - Serverless com dependencia GeoPandas versionada
+#   - Serverless com dependencias Python explicitamente versionadas
+#
+# Correcao do ambiente:
+#   Serverless environment v2 usa PyArrow 14.0.1 como base.
+#   Fixar NumPy 1.x evita incompatibilidade binaria com PyArrow 14.
+#   GeoPandas 1.1.1 requer NumPy >= 1.24 e Pandas >= 2.0.
 #
 # Fontes consultadas:
 #   workspace.silver.ssp_ocorrencias
@@ -25,8 +30,8 @@
 #   workspace.silver.ssp_ocorrencias_distrito
 #
 # ATENCAO:
-#   A configuracao so deve entrar em um deploy depois que os
-#   workflows de CI e CD autorizarem e validarem o quarto Job.
+#   Os workflows de CI/CD devem ser atualizados para aceitar
+#   a lista de dependencias abaixo antes do merge.
 # ============================================================
 
 resources:
@@ -52,6 +57,9 @@ resources:
             environment_version: "2"
             dependencies:
               - "geopandas==1.1.1"
+              - "numpy==1.26.4"
+              - "pandas==2.2.3"
+              - "pyarrow==14.0.1"
 
       tasks:
         - task_key: validar_silver_ssp_spatial
