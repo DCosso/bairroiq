@@ -1,3 +1,4 @@
+
 name: BarrioIQ - Databricks Bundle CI
 
 on:
@@ -47,7 +48,10 @@ jobs:
                   raise ValueError(message)
 
           def read_yaml(path):
-              require(path.is_file(), f"Arquivo ausente: {path}")
+              require(
+                  path.is_file(),
+                  f"Arquivo ausente: {path}",
+              )
               data = yaml.safe_load(
                   path.read_text(encoding="utf-8")
               )
@@ -90,14 +94,19 @@ jobs:
               "Nome inesperado do Bundle",
           )
 
-          # Ler somente os arquivos incluidos pelo Bundle.
+          # ==========================================
+          # IDENTIFICACAO DOS RECURSOS
+          # ==========================================
+
           includes = config.get("include") or []
+
           require(
               isinstance(includes, list),
               "include deve ser uma lista",
           )
 
           files = {main_file}
+
           for pattern in includes:
               require(
                   isinstance(pattern, str),
@@ -107,15 +116,23 @@ jobs:
 
           jobs = {}
           owners = {}
+
           for file in sorted(files):
               doc = read_yaml(file)
               resources = doc.get("resources") or {}
+
               require(
                   set(resources).issubset({"jobs"}),
                   f"Tipo de recurso inesperado em {file}",
               )
-              for key, job in (resources.get("jobs") or {}).items():
-                  require(key not in jobs, f"Job duplicado: {key}")
+
+              for key, job in (
+                  resources.get("jobs") or {}
+              ).items():
+                  require(
+                      key not in jobs,
+                      f"Job duplicado: {key}",
+                  )
                   require(
                       isinstance(job, dict),
                       f"Job invalido: {key}",
@@ -123,36 +140,53 @@ jobs:
                   jobs[key] = job
                   owners[key] = file
 
-          # Contrato fechado: os tres Jobs existentes + novo SSP.
+          # ==========================================
+          # CONTRATO FECHADO: CINCO JOBS
+          # ==========================================
+
           require(
               set(jobs) == {
                   "barrioiq_smoke_job",
                   "bairroiq_bronze_ddl_job",
                   "bairroiq_silver_ibge_check_job",
                   "bairroiq_silver_ssp_check_job",
+                  "bairroiq_silver_observasampa_check_job",
               },
               f"Conjunto inesperado de Jobs: {sorted(jobs)}",
           )
 
+          # ==========================================
+          # VALIDACAO GENERICA DAS TAREFAS
+          # ==========================================
+
           tasks_by_job = {}
+
           for key, job in jobs.items():
               environments = job.get("environments") or []
+
               env_keys = [
                   env["environment_key"]
                   for env in environments
               ]
+
               require(
                   len(env_keys) == len(set(env_keys)),
                   f"Ambiente duplicado no Job {key}",
               )
 
               tasks = job.get("tasks") or []
-              task_keys = [task["task_key"] for task in tasks]
+
+              task_keys = [
+                  task["task_key"]
+                  for task in tasks
+              ]
+
               require(
                   bool(tasks)
                   and len(task_keys) == len(set(task_keys)),
                   f"Tarefas ausentes ou duplicadas no Job {key}",
               )
+
               tasks_by_job[key] = {
                   task["task_key"]: task
                   for task in tasks
@@ -162,37 +196,46 @@ jobs:
                   task_key = task["task_key"]
                   notebook = task.get("notebook_task")
                   python = task.get("spark_python_task")
+
                   require(
-                      (notebook is not None) != (python is not None),
+                      (notebook is not None)
+                      != (python is not None),
                       f"Tipo de tarefa inesperado: {key}/{task_key}",
                   )
+
                   if notebook is not None:
                       check_local_file(
                           owners[key],
                           notebook.get("notebook_path"),
                       )
+
                   if python is not None:
                       path = check_local_file(
                           owners[key],
                           python.get("python_file"),
                       )
+
                       require(
                           path.suffix == ".py",
                           f"Script Python invalido: {path}",
                       )
+
                       compile(
                           path.read_text(encoding="utf-8"),
                           str(path),
                           "exec",
                       )
+
                       require(
                           python.get("source") == "WORKSPACE",
                           f"Source inesperado: {task_key}",
                       )
+
                       require(
                           task.get("environment_key") in env_keys,
                           f"Ambiente ausente: {task_key}",
                       )
+
                   for dep in task.get("depends_on") or []:
                       require(
                           dep["task_key"] in task_keys
@@ -200,8 +243,12 @@ jobs:
                           f"Dependencia invalida: {task_key}",
                       )
 
-          # Preservar a topologia do Smoke.
+          # ==========================================
+          # 1. JOB SMOKE
+          # ==========================================
+
           smoke = tasks_by_job["barrioiq_smoke_job"]
+
           require(
               set(smoke) == {
                   "validar_ambiente",
@@ -209,19 +256,25 @@ jobs:
               },
               "Tarefas inesperadas no Job de qualidade",
           )
+
           require(
               not smoke["validar_ambiente"].get("depends_on"),
               "validar_ambiente deve ser a tarefa inicial",
           )
+
           require(
               smoke["validar_qualidade"].get("depends_on")
               == [{"task_key": "validar_ambiente"}],
               "Dependencia do Job de qualidade alterada",
           )
 
-          # Preservar a topologia e as protecoes da Bronze.
+          # ==========================================
+          # 2. JOB BRONZE DDL
+          # ==========================================
+
           bronze = jobs["bairroiq_bronze_ddl_job"]
           tasks = tasks_by_job["bairroiq_bronze_ddl_job"]
+
           require(
               set(tasks) == {
                   "validar_ddls_bronze",
@@ -229,48 +282,59 @@ jobs:
               },
               "Tarefas inesperadas no Job Bronze",
           )
+
           require(
               bronze.get("max_concurrent_runs") == 1,
               "Job Bronze deve permitir uma execucao por vez",
           )
+
           for field in ("schedule", "trigger", "continuous"):
               require(
                   field not in bronze,
                   f"Job Bronze deve permanecer sem {field}",
               )
+
           validate = tasks["validar_ddls_bronze"]
           apply = tasks["aplicar_ddls_bronze"]
+
           require(
               not validate.get("depends_on"),
               "Validacao Bronze deve ser a tarefa inicial",
           )
+
           require(
               not validate["spark_python_task"].get("parameters"),
               "Validacao Bronze nao pode receber parametros de aplicacao",
           )
+
           require(
               apply.get("depends_on")
               == [{"task_key": "validar_ddls_bronze"}],
               "Aplicacao deve depender da validacao Bronze",
           )
+
           require(
               apply.get("run_if") == "ALL_SUCCESS",
               "Aplicacao exige validacao bem-sucedida",
           )
+
           require(
               apply["spark_python_task"].get("parameters")
               == ["--apply"],
               "Parametros inesperados na aplicacao Bronze",
           )
+
           for task in (validate, apply):
               require(
                   task.get("disabled") in (None, False),
                   "Tarefa Bronze nao pode estar desabilitada",
               )
+
               require(
                   task.get("max_retries") == 0,
                   "Retries Bronze devem permanecer desabilitados",
               )
+
               require(
                   not any(
                       field in task
@@ -282,128 +346,173 @@ jobs:
                   ),
                   "Tarefas Bronze devem usar o ambiente serverless",
               )
+
               path = check_local_file(
                   owners["bairroiq_bronze_ddl_job"],
                   task["spark_python_task"]["python_file"],
               )
+
               require(
                   path == root / "bronze_ddl_runner.py",
                   "Executor inesperado no Job Bronze",
               )
 
-          # Manter todas as restricoes do Job Silver IBGE.
+          # ==========================================
+          # 3. JOB SILVER IBGE
+          # ==========================================
+
           silver = jobs["bairroiq_silver_ibge_check_job"]
-          silver_tasks = tasks_by_job["bairroiq_silver_ibge_check_job"]
+          silver_tasks = tasks_by_job[
+              "bairroiq_silver_ibge_check_job"
+          ]
+
           require(
               set(silver_tasks) == {"validar_silver_ibge"},
               "Tarefas inesperadas no Job Silver IBGE",
           )
+
           require(
-              silver.get("name") == "bairroiq-silver-ibge-check-job",
+              silver.get("name")
+              == "bairroiq-silver-ibge-check-job",
               "Nome inesperado do Job Silver IBGE",
           )
+
           require(
               silver.get("max_concurrent_runs") == 1,
               "Job Silver IBGE deve permitir uma execucao por vez",
           )
+
           require(
               silver.get("timeout_seconds") == 900,
               "Timeout inesperado do Job Silver IBGE",
           )
+
           require(
               silver.get("queue", {}).get("enabled") is True,
               "Fila do Job Silver IBGE deve permanecer habilitada",
           )
+
           for field in ("schedule", "trigger", "continuous"):
               require(
                   field not in silver,
                   f"Job Silver IBGE nao pode ter {field}",
               )
+
           environments = silver.get("environments") or []
+
           require(
               len(environments) == 1
               and environments[0].get("environment_key")
               == "silver_serverless",
               "Ambiente inesperado no Job Silver IBGE",
           )
+
           require(
-              str((environments[0].get("spec") or {}).get(
-                  "environment_version"
-              )) == "2",
+              str(
+                  (environments[0].get("spec") or {}).get(
+                      "environment_version"
+                  )
+              ) == "2",
               "Job Silver IBGE deve usar Serverless environment v2",
           )
+
           silver_task = silver_tasks["validar_silver_ibge"]
+
           require(
               not silver_task.get("depends_on"),
               "Job Silver IBGE nao pode depender de outras tarefas",
           )
+
           require(
               silver_task.get("disabled") in (None, False),
               "Tarefa Silver IBGE nao pode estar desabilitada",
           )
+
           require(
               silver_task.get("max_retries") == 0,
               "Retries Silver IBGE devem estar desabilitados",
           )
+
           require(
               silver_task.get("timeout_seconds") == 600,
               "Timeout inesperado na tarefa Silver IBGE",
           )
+
           require(
               silver_task.get("environment_key")
               == "silver_serverless",
               "Tarefa Silver IBGE deve usar Serverless",
           )
+
           require(
               not any(
                   field in silver_task
                   for field in (
-                      "new_cluster", "existing_cluster_id", "job_cluster_key",
+                      "new_cluster",
+                      "existing_cluster_id",
+                      "job_cluster_key",
                   )
               ),
               "Tarefa Silver IBGE nao pode usar clusters dedicados",
           )
+
           script = silver_task["spark_python_task"]
+
           require(
               script.get("parameters") == ["--check"],
               "Silver IBGE deve executar somente com --check",
           )
+
           require(
               script.get("source") == "WORKSPACE",
               "Silver IBGE deve usar script do Workspace",
           )
+
           path = check_local_file(
               owners["bairroiq_silver_ibge_check_job"],
               script["python_file"],
           )
+
           require(
               path == root / "silver_ibge_runner.py",
               "Executor inesperado no Job Silver IBGE",
           )
 
-          # Novo Job SSP: validacao sem escrita nem agendamento.
+          # ==========================================
+          # 4. JOB SILVER SSP SPATIAL
+          # ==========================================
+
           ssp = jobs["bairroiq_silver_ssp_check_job"]
-          ssp_tasks = tasks_by_job["bairroiq_silver_ssp_check_job"]
+          ssp_tasks = tasks_by_job[
+              "bairroiq_silver_ssp_check_job"
+          ]
+
           require(
               set(ssp_tasks) == {"validar_silver_ssp_spatial"},
               "Job SSP deve conter somente uma tarefa",
           )
+
           require(
-              ssp.get("name") == "bairroiq-silver-ssp-check-job",
+              ssp.get("name")
+              == "bairroiq-silver-ssp-check-job",
               "Nome inesperado do Job SSP",
           )
+
           require(
               ssp.get("max_concurrent_runs") == 1,
               "Job SSP deve permitir somente uma execucao por vez",
           )
+
           require(
               ssp.get("timeout_seconds") == 2400,
               "Timeout inesperado do Job SSP",
           )
+
           require(
               ssp.get("queue", {}).get("enabled") is True,
               "Fila do Job SSP deve permanecer habilitada",
           )
+
           for field in ("schedule", "trigger", "continuous"):
               require(
                   field not in ssp,
@@ -411,16 +520,21 @@ jobs:
               )
 
           envs = ssp.get("environments") or []
+
           require(
               len(envs) == 1
-              and envs[0].get("environment_key") == "ssp_serverless",
+              and envs[0].get("environment_key")
+              == "ssp_serverless",
               "Ambiente inesperado no Job SSP",
           )
+
           spec = envs[0].get("spec") or {}
+
           require(
               str(spec.get("environment_version")) == "2",
               "Job SSP exige Serverless environment v2",
           )
+
           require(
               spec.get("dependencies") == [
                   "geopandas==1.1.1",
@@ -432,55 +546,214 @@ jobs:
           )
 
           task = ssp_tasks["validar_silver_ssp_spatial"]
+
           require(
               not task.get("depends_on"),
               "Job SSP nao pode ter dependencias entre tarefas",
           )
+
           require(
               task.get("disabled") in (None, False),
               "Tarefa SSP nao pode estar desabilitada",
           )
+
           require(
               task.get("max_retries") == 0,
               "Job SSP nao pode repetir execucoes automaticamente",
           )
+
           require(
               task.get("timeout_seconds") == 2100,
               "Timeout inesperado na tarefa SSP",
           )
+
           require(
               task.get("environment_key") == "ssp_serverless",
               "Tarefa SSP deve utilizar ambiente Serverless",
           )
+
           require(
               not any(
                   field in task
                   for field in (
-                      "new_cluster", "existing_cluster_id", "job_cluster_key",
+                      "new_cluster",
+                      "existing_cluster_id",
+                      "job_cluster_key",
                   )
               ),
               "Tarefa SSP nao pode usar cluster dedicado",
           )
+
           script = task.get("spark_python_task") or {}
+
           require(
               script.get("parameters") == ["--check"],
               "Job SSP deve executar somente com --check",
           )
+
           require(
               script.get("source") == "WORKSPACE",
               "Job SSP deve usar script do Workspace",
           )
+
           path = check_local_file(
               owners["bairroiq_silver_ssp_check_job"],
               script.get("python_file"),
           )
+
           require(
               path == root / "silver_ssp_spatial_runner.py",
               "Executor inesperado no Job SSP",
           )
 
-          print("Bundle validado estruturalmente: 4 Job(s)")
-          print("BUNDLE_STATIC_VALIDATION_SUCCESS")
+          # ==========================================
+          # 5. JOB SILVER OBSERVASAMPA
+          # ==========================================
+
+          obs_key = (
+              "bairroiq_silver_observasampa_check_job"
+          )
+
+          obs = jobs[obs_key]
+          obs_tasks = tasks_by_job[obs_key]
+
+          require(
+              obs.get("name")
+              == "bairroiq-silver-observasampa-check-job",
+              "Nome inesperado do Job ObservaSampa",
+          )
+
+          require(
+              obs.get("max_concurrent_runs") == 1,
+              "ObservaSampa deve permitir uma execucao simultanea",
+          )
+
+          require(
+              obs.get("timeout_seconds") == 1800,
+              "Timeout inesperado do Job ObservaSampa",
+          )
+
+          require(
+              (obs.get("queue") or {}).get("enabled") is True,
+              "Fila ObservaSampa deve estar habilitada",
+          )
+
+          for field in ("schedule", "trigger", "continuous"):
+              require(
+                  field not in obs,
+                  f"ObservaSampa nao pode ter {field}",
+              )
+
+          envs = obs.get("environments") or []
+
+          require(
+              len(envs) == 1
+              and envs[0].get("environment_key")
+              == "observasampa_serverless",
+              "Ambiente inesperado no Job ObservaSampa",
+          )
+
+          spec = envs[0].get("spec") or {}
+
+          require(
+              str(spec.get("environment_version")) == "2",
+              "ObservaSampa exige Serverless v2",
+          )
+
+          require(
+              not spec.get("dependencies"),
+              "Dependencias inesperadas no ObservaSampa",
+          )
+
+          require(
+              set(obs_tasks) == {
+                  "validar_silver_observasampa"
+              },
+              "ObservaSampa deve conter somente uma tarefa",
+          )
+
+          task = obs_tasks[
+              "validar_silver_observasampa"
+          ]
+
+          require(
+              not task.get("depends_on"),
+              "ObservaSampa nao pode depender de outras tarefas",
+          )
+
+          require(
+              task.get("disabled") in (None, False),
+              "Validacao ObservaSampa nao pode estar desabilitada",
+          )
+
+          require(
+              task.get("max_retries") == 0,
+              "Retentativas ObservaSampa devem estar desabilitadas",
+          )
+
+          require(
+              task.get("timeout_seconds") == 1500,
+              "Timeout inesperado da tarefa ObservaSampa",
+          )
+
+          require(
+              task.get("environment_key")
+              == "observasampa_serverless",
+              "Tarefa ObservaSampa deve usar Serverless",
+          )
+
+          require(
+              not any(
+                  field in task
+                  for field in (
+                      "new_cluster",
+                      "existing_cluster_id",
+                      "job_cluster_key",
+                  )
+              ),
+              "ObservaSampa nao pode usar cluster dedicado",
+          )
+
+          script = task.get(
+              "spark_python_task"
+          ) or {}
+
+          require(
+              script.get("parameters") == ["--check"],
+              "ObservaSampa deve executar somente --check",
+          )
+
+          require(
+              script.get("source") == "WORKSPACE",
+              "Script ObservaSampa deve usar WORKSPACE",
+          )
+
+          path = check_local_file(
+              owners[obs_key],
+              script.get("python_file"),
+          )
+
+          require(
+              path
+              == root / "silver_observasampa_runner.py",
+              "Executor ObservaSampa inesperado",
+          )
+
+          print(
+              "OBSERVASAMPA_JOB_SECURITY_VALIDATED"
+          )
+
+          # ==========================================
+          # VALIDACAO FINAL
+          # ==========================================
+
+          print(
+              "Bundle validado estruturalmente: 5 Job(s)"
+          )
+
+          print(
+              "BUNDLE_STATIC_VALIDATION_SUCCESS"
+          )
           PY
 
       - name: Validate Bronze SQL files without applying
