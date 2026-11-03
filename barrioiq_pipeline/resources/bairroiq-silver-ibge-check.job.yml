@@ -1,0 +1,70 @@
+
+# ============================================================
+# BairroIQ | Silver IBGE | Job de Validacao
+# ============================================================
+#
+# Objetivo:
+#   Validar a transformacao Silver do IBGE usando dados reais.
+#
+# Seguranca:
+#   - Somente leitura (--check)
+#   - Nenhuma publicacao de tabelas
+#   - Nenhum agendamento automatico
+#   - Nenhuma repeticao automatica
+#   - Execucao Serverless
+#
+# Fonte:
+#   workspace.bronze.ibge_agregados_basico_v2
+#
+# Destino consultado:
+#   workspace.silver.ibge_agregados_basicos_v2
+#
+# ============================================================
+
+resources:
+  jobs:
+    bairroiq_silver_ibge_check_job:
+      name: bairroiq-silver-ibge-check-job
+
+      description: >-
+        Executa a validacao somente leitura da Silver IBGE.
+        Confere 96 distritos, regras demograficas e
+        consistencia com a tabela Silver existente.
+        Nao publica nem altera dados.
+
+      # Impede execucoes simultaneas do mesmo Job.
+      max_concurrent_runs: 1
+
+      # Tempo limite total do Job: 15 minutos.
+      timeout_seconds: 900
+
+      queue:
+        enabled: true
+
+      # Ambiente Serverless, mesmo padrao da Bronze.
+      environments:
+        - environment_key: silver_serverless
+          spec:
+            environment_version: "2"
+
+      tasks:
+        - task_key: validar_silver_ibge
+
+          description: >-
+            Executar o silver_ibge_runner.py em modo
+            de validacao, sem escrita de dados.
+
+          environment_key: silver_serverless
+
+          timeout_seconds: 600
+
+          # Nao repetir automaticamente em caso de falha.
+          max_retries: 0
+
+          spark_python_task:
+            python_file: ../silver_ibge_runner.py
+            source: WORKSPACE
+
+            # Obrigatoriamente somente leitura.
+            parameters:
+              - "--check"
