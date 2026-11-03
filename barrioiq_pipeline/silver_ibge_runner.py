@@ -20,12 +20,37 @@ SOURCE = "workspace.bronze.ibge_agregados_basico_v2"
 TARGET = "workspace.silver.ibge_agregados_basicos_v2"
 AUDIT = "workspace.observability.silver_ibge_runs"
 
+
+def resolve_script_dir():
+    """
+    Resolve o diretorio do executor em Python local
+    e no Databricks Serverless.
+
+    No Databricks, __file__ pode nao estar definido
+    quando o script e executado via exec().
+    """
+    filename = (
+        globals().get("__file__")
+        or resolve_script_dir.__code__.co_filename
+    )
+
+    path = Path(filename).resolve()
+
+    if not path.is_file():
+        raise RuntimeError(
+            f"Arquivo do executor nao encontrado: {path}"
+        )
+
+    return path.parent
+
+
 SQL_FILE = (
-    Path(__file__).resolve().parent
+    resolve_script_dir()
     / "sql"
     / "silver"
     / "001_ibge_agregados_basicos.sql"
 )
+
 
 COLUMNS = [
     "CD_DIST",
