@@ -1,0 +1,85 @@
+
+# ============================================================
+# BairroIQ | Silver GeoSampa | Job de Validacao
+# ============================================================
+#
+# Objetivo:
+#   Validar os indicadores de equipamentos urbanos
+#   do GeoSampa para os 96 distritos de Sao Paulo.
+#
+# Seguranca:
+#   - Execucao somente leitura (--check)
+#   - Sem publicacao ou sobrescrita de tabelas
+#   - Sem agendamento automatico
+#   - Sem retries
+#   - Uma execucao simultanea
+#   - Ambiente Databricks Serverless
+#
+# Fonte principal:
+#   workspace.bronze.geo_sampa
+#
+# Referencia territorial:
+#   workspace.silver.ibge_agregados_basicos_v2
+#
+# Malha oficial:
+#   /Volumes/workspace/bronze/raw/ibge/
+#   malha_distritos_2022/shapefile/SP_distritos_CD2022.dbf
+#
+# Destino consultado:
+#   workspace.silver.geosampa_equipamentos_distrito
+#
+# ============================================================
+
+resources:
+  jobs:
+    bairroiq_silver_geosampa_check_job:
+      name: bairroiq-silver-geosampa-check-job
+
+      description: >-
+        Executa a validacao somente leitura da Silver
+        GeoSampa. Verifica os 96 distritos, os indicadores
+        de equipamentos urbanos, os nomes territoriais
+        oficiais do IBGE e a consistencia com a tabela
+        Silver existente. Nao publica ou altera dados.
+
+      # Impede execucoes simultaneas.
+      max_concurrent_runs: 1
+
+      # Tempo limite total do Job: 30 minutos.
+      timeout_seconds: 1800
+
+      # Habilita fila para execucoes manuais.
+      queue:
+        enabled: true
+
+      # Ambiente Serverless.
+      environments:
+        - environment_key: geosampa_serverless
+          spec:
+            environment_version: "2"
+
+      tasks:
+        - task_key: validar_silver_geosampa
+
+          description: >-
+            Executa silver_geosampa_runner.py em modo
+            somente leitura. Valida os dados territoriais,
+            consulta a malha IBGE e compara o resultado
+            calculado com a Silver GeoSampa publicada.
+
+          environment_key: geosampa_serverless
+
+          # Tempo limite da tarefa: 25 minutos.
+          timeout_seconds: 1500
+
+          # Proibe repeticoes automaticas.
+          max_retries: 0
+
+          spark_python_task:
+            python_file: ../silver_geosampa_runner.py
+            source: WORKSPACE
+
+            # Somente validacao.
+            # Nunca incluir --apply.
+            parameters:
+              - "--check"
