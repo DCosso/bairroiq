@@ -1,0 +1,70 @@
+# ============================================================
+# BairroIQ | Silver SSP-SP | Job de Validacao Espacial
+# ============================================================
+#
+# Objetivo:
+#   Reproduzir, em memoria, o cruzamento espacial de ocorrencias
+#   criminais da SSP-SP com os 96 distritos da capital e comparar
+#   as oito colunas do resultado com a Silver ja existente.
+#
+# Seguranca:
+#   - Executor somente leitura: --check
+#   - Sem --apply ou publicacao
+#   - Sem agendamento, trigger ou execucao continua
+#   - Sem repeticoes automaticas
+#   - Uma execucao simultanea no maximo
+#   - Serverless com dependencia GeoPandas versionada
+#
+# Fontes consultadas:
+#   workspace.silver.ssp_ocorrencias
+#   workspace.silver.ibge_agregados_basicos_v2
+#   /Volumes/workspace/bronze/raw/ibge/malha_distritos_2022/
+#     shapefile/SP_distritos_CD2022.shp
+#
+# Destino SOMENTE CONSULTADO:
+#   workspace.silver.ssp_ocorrencias_distrito
+#
+# ATENCAO:
+#   A configuracao so deve entrar em um deploy depois que os
+#   workflows de CI e CD autorizarem e validarem o quarto Job.
+# ============================================================
+
+resources:
+  jobs:
+    bairroiq_silver_ssp_check_job:
+      name: bairroiq-silver-ssp-check-job
+
+      description: >-
+        Executa uma validacao somente leitura da associacao espacial
+        SSP-SP x 96 distritos IBGE 2022, incluindo integridade da malha,
+        snapshots Delta e comparacao das oito colunas com a Silver atual.
+        Nao grava tabelas ou arquivos.
+
+      max_concurrent_runs: 1
+      timeout_seconds: 2400
+
+      queue:
+        enabled: true
+
+      environments:
+        - environment_key: ssp_serverless
+          spec:
+            environment_version: "2"
+            dependencies:
+              - "geopandas==1.1.1"
+
+      tasks:
+        - task_key: validar_silver_ssp_spatial
+          description: >-
+            Executa silver_ssp_spatial_runner.py em --check,
+            sem operacoes de escrita ou publicacao.
+
+          environment_key: ssp_serverless
+          timeout_seconds: 2100
+          max_retries: 0
+
+          spark_python_task:
+            python_file: ../silver_ssp_spatial_runner.py
+            source: WORKSPACE
+            parameters:
+              - "--check"
