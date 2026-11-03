@@ -572,12 +572,21 @@ def execute(spark, apply=False):
             "Fontes Delta mudaram durante a validacao"
         )
 
-    # Somente cria a tabela quando ela nao existe.
-    proposed.write.format(
-        "delta"
-    ).mode(
-        "errorifexists"
-    ).saveAsTable(TARGET)
+    # Publicacao condicional compativel com Databricks Serverless.
+    # Nao substitui tabelas existentes nem adiciona duplicatas.
+    from uuid import uuid4
+
+    temp_view = f"bairroiq_observasampa_publish_{uuid4().hex}"
+
+    proposed.createOrReplaceTempView(temp_view)
+
+    try:
+        spark.sql(
+            f"CREATE TABLE IF NOT EXISTS {TARGET} "
+            f"USING DELTA AS SELECT * FROM {temp_view}"
+        ).collect()
+    finally:
+        spark.catalog.dropTempView(temp_view)
 
     if not equal_target(spark, proposed):
         raise ContractError(
