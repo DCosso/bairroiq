@@ -6,15 +6,17 @@ python -m unittest discover -s tests \
   -p "test_silver_observasampa_runner.py" -v
 """
 
-from copy import deepcopy
 from decimal import Decimal
-from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase, main
 from unittest.mock import patch
 
 from barrioiq_pipeline import silver_observasampa_runner as runner
 
+
+# ============================================================
+# 1. DADOS SINTETICOS
+# ============================================================
 
 def fixtures():
     reference = []
@@ -45,6 +47,10 @@ def fixtures():
     return reference, regions
 
 
+# ============================================================
+# 2. TESTES DE NORMALIZACAO TERRITORIAL
+# ============================================================
+
 class TestNormalization(TestCase):
 
     def test_names_accents(self):
@@ -59,8 +65,13 @@ class TestNormalization(TestCase):
         )
 
     def test_invalid_name(self):
-        self.assertIsNone(runner.normalizar(None))
-        self.assertIsNone(runner.normalizar(" � "))
+        self.assertIsNone(
+            runner.normalizar(None)
+        )
+
+        self.assertIsNone(
+            runner.normalizar(" � ")
+        )
 
     def test_district_suffix(self):
         self.assertEqual(
@@ -87,10 +98,14 @@ class TestNormalization(TestCase):
         ref, regions = fixtures()
 
         mapping = runner.build_reference(
-            ref, regions
+            ref,
+            regions,
         )
 
-        self.assertEqual(len(mapping), 96)
+        self.assertEqual(
+            len(mapping),
+            96,
+        )
 
         self.assertEqual(
             mapping[0],
@@ -109,31 +124,38 @@ class TestNormalization(TestCase):
             "96 distritos",
         ):
             runner.build_reference(
-                ref, regions[:-1]
+                ref,
+                regions[:-1],
             )
 
     def test_reject_duplicate_reference_code(self):
         ref, regions = fixtures()
 
-        ref[1]["CD_DIST"] = ref[0]["CD_DIST"]
+        ref[1]["CD_DIST"] = (
+            ref[0]["CD_DIST"]
+        )
 
         with self.assertRaises(
             runner.ContractError
         ):
             runner.build_reference(
-                ref, regions
+                ref,
+                regions,
             )
 
     def test_reject_duplicate_reference_name(self):
         ref, regions = fixtures()
 
-        ref[1]["NM_DIST"] = ref[0]["NM_DIST"]
+        ref[1]["NM_DIST"] = (
+            ref[0]["NM_DIST"]
+        )
 
         with self.assertRaises(
             runner.ContractError
         ):
             runner.build_reference(
-                ref, regions
+                ref,
+                regions,
             )
 
     def test_reject_duplicate_region(self):
@@ -147,7 +169,8 @@ class TestNormalization(TestCase):
             runner.ContractError
         ):
             runner.build_reference(
-                ref, regions
+                ref,
+                regions,
             )
 
     def test_reject_unknown_territory(self):
@@ -162,7 +185,8 @@ class TestNormalization(TestCase):
             "sem correspondencia",
         ):
             runner.build_reference(
-                ref, regions
+                ref,
+                regions,
             )
 
     def test_reject_subprefeitura(self):
@@ -177,19 +201,26 @@ class TestNormalization(TestCase):
             "nao distrital",
         ):
             runner.build_reference(
-                ref, regions
+                ref,
+                regions,
             )
 
+
+# ============================================================
+# 3. TESTES DE CONVERSAO NUMERICA
+# ============================================================
 
 class TestValues(TestCase):
 
     def test_integer_employment_2021(self):
+        # Empregos formais sao contagens inteiras.
         self.assertEqual(
             runner.parse_numeric("106896"),
             (Decimal("106896"), "OK"),
         )
 
     def test_decimal_led_2024(self):
+        # LED utiliza virgula decimal.
         self.assertEqual(
             runner.parse_numeric("92,8119"),
             (Decimal("92.8119"), "OK"),
@@ -201,49 +232,44 @@ class TestValues(TestCase):
         )
 
     def test_negative_values_supported(self):
+        # Algumas taxas podem assumir valores negativos.
         self.assertEqual(
             runner.parse_numeric("-3,5"),
             (Decimal("-3.5"), "OK"),
         )
 
-
-def test_reject_ambiguous_thousands(self):
-    # Ponto com tres casas permanece ambiguo.
-    self.assertEqual(
-        runner.parse_numeric("1.234"),
-        (None, "AMBIGUO"),
-    )
-
-    # Virgula e separador decimal na ObservaSampa.
-    self.assertEqual(
-        runner.parse_numeric("1,234"),
-        (Decimal("1.234"), "OK"),
-    )
-
-    # Percentuais e taxas com tres casas decimais.
-    self.assertEqual(
-        runner.parse_numeric("87,976"),
-        (Decimal("87.976"), "OK"),
-    )
-
-    self.assertEqual(
-        runner.parse_numeric("100,034"),
-        (Decimal("100.034"), "OK"),
-    )
-
-    # Empregos formais permanecem contagens inteiras.
-    self.assertEqual(
-        runner.parse_numeric("106896"),
-        (Decimal("106896"), "OK"),
-    )
-
-
+    def test_reject_ambiguous_thousands(self):
+        # Ponto com tres casas permanece ambiguo.
         self.assertEqual(
-            runner.parse_numeric("1,234"),
+            runner.parse_numeric("1.234"),
             (None, "AMBIGUO"),
         )
 
+        # Virgula representa separador decimal.
+        self.assertEqual(
+            runner.parse_numeric("1,234"),
+            (Decimal("1.234"), "OK"),
+        )
+
+        # Percentuais com tres casas decimais.
+        self.assertEqual(
+            runner.parse_numeric("87,976"),
+            (Decimal("87.976"), "OK"),
+        )
+
+        self.assertEqual(
+            runner.parse_numeric("100,034"),
+            (Decimal("100.034"), "OK"),
+        )
+
+        # Empregos continuam com valores inteiros.
+        self.assertEqual(
+            runner.parse_numeric("106896"),
+            (Decimal("106896"), "OK"),
+        )
+
     def test_reject_mixed_separators(self):
+        # Formato com separadores misturados.
         self.assertEqual(
             runner.parse_numeric("1.234,56"),
             (None, "FORMATO_INVALIDO"),
@@ -265,6 +291,10 @@ def test_reject_ambiguous_thousands(self):
             (None, "FORMATO_INVALIDO"),
         )
 
+
+# ============================================================
+# 4. TESTES DE CONTRATO E SEGURANCA
+# ============================================================
 
 class TestSafety(TestCase):
 
@@ -295,16 +325,21 @@ class TestSafety(TestCase):
         )
 
     def test_requires_confirmation(self):
+        # --apply sozinho nao pode publicar.
         with self.assertRaises(
             SystemExit
         ) as caught:
-            runner.main(["--apply"])
+            runner.main([
+                "--apply",
+            ])
 
         self.assertEqual(
-            caught.exception.code, 2
+            caught.exception.code,
+            2,
         )
 
     def test_no_confirm_on_check(self):
+        # --check nao aceita confirmacao de publicacao.
         with self.assertRaises(
             SystemExit
         ) as caught:
@@ -314,10 +349,12 @@ class TestSafety(TestCase):
             ])
 
         self.assertEqual(
-            caught.exception.code, 2
+            caught.exception.code,
+            2,
         )
 
     def test_mutually_exclusive(self):
+        # Check e Apply nao podem ser executados juntos.
         with self.assertRaises(
             SystemExit
         ) as caught:
@@ -328,10 +365,12 @@ class TestSafety(TestCase):
             ])
 
         self.assertEqual(
-            caught.exception.code, 2
+            caught.exception.code,
+            2,
         )
 
     def test_execute_check_does_not_write(self):
+        # Simula a validacao sem Spark real.
 
         class DummySpark:
             catalog = SimpleNamespace(
@@ -358,21 +397,26 @@ class TestSafety(TestCase):
             patch.object(
                 runner,
                 "emit",
-            ) as emit,
+            ) as mocked_emit,
         ):
             summary = runner.execute(
                 DummySpark(),
                 apply=False,
             )
 
-        self.assertEqual(summary, expected)
+        self.assertEqual(
+            summary,
+            expected,
+        )
 
         self.assertEqual(
-            emit.call_args_list[-1].args[0],
+            mocked_emit.call_args_list[-1].args[0],
             "OBSERVASAMPA_SILVER_CHECK_SUCCESS",
         )
 
     def test_apply_blocks_existing_different_table(self):
+        # Uma tabela Silver divergente nao pode ser
+        # substituida automaticamente.
 
         class DummySpark:
             catalog = SimpleNamespace(
@@ -411,6 +455,10 @@ class TestSafety(TestCase):
                     apply=True,
                 )
 
+
+# ============================================================
+# 5. EXECUCAO LOCAL
+# ============================================================
 
 if __name__ == "__main__":
     main(verbosity=2)
