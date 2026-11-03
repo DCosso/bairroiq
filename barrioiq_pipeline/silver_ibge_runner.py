@@ -16,10 +16,18 @@ import re
 from uuid import uuid4
 
 
+# ============================================================
+# 1. CONFIGURACOES
+# ============================================================
+
 SOURCE = "workspace.bronze.ibge_agregados_basico_v2"
 TARGET = "workspace.silver.ibge_agregados_basicos_v2"
 AUDIT = "workspace.observability.silver_ibge_runs"
 
+
+# ============================================================
+# 2. RESOLUCAO DO CAMINHO DO SCRIPT
+# ============================================================
 
 def resolve_script_dir():
     """
@@ -28,7 +36,11 @@ def resolve_script_dir():
 
     No Databricks, __file__ pode nao estar definido
     quando o script e executado via exec().
+
+    Usa o nome do arquivo associado ao codigo da funcao
+    como alternativa, conforme o executor Bronze.
     """
+
     filename = (
         globals().get("__file__")
         or resolve_script_dir.__code__.co_filename
@@ -70,6 +82,10 @@ COLUMNS = [
 ]
 
 
+# ============================================================
+# 3. LOGS E OBSERVABILIDADE
+# ============================================================
+
 def emit(event, **details):
     print(
         json.dumps(
@@ -80,6 +96,10 @@ def emit(event, **details):
         flush=True,
     )
 
+
+# ============================================================
+# 4. CARREGAMENTO DO SQL VERSIONADO
+# ============================================================
 
 def load_select():
     """Extrai a transformacao SQL do arquivo versionado."""
@@ -136,6 +156,10 @@ def load_select():
     return projection, hashlib.sha256(raw).hexdigest()
 
 
+# ============================================================
+# 5. CONTROLE DE VERSAO DA BRONZE
+# ============================================================
+
 def snapshot(spark):
     """Identifica a versao Delta atual da Bronze."""
 
@@ -160,6 +184,10 @@ def build_select(projection, version):
         "WHERE CD_MUN = '3550308'"
     )
 
+
+# ============================================================
+# 6. VALIDACAO DE QUALIDADE
+# ============================================================
 
 def validate(df):
     """Valida as regras demograficas e territoriais."""
@@ -282,6 +310,10 @@ def validate(df):
     return rows
 
 
+# ============================================================
+# 7. COMPARACAO COM A SILVER EXISTENTE
+# ============================================================
+
 def same_as_target(spark, proposed):
     """Compara os dados novos com a Silver atual."""
 
@@ -313,6 +345,10 @@ def same_as_target(spark, proposed):
 
     return as_tuples(old) == as_tuples(proposed)
 
+
+# ============================================================
+# 8. AUDITORIA DE PUBLICACAO
+# ============================================================
 
 def audit(
     spark,
@@ -367,6 +403,10 @@ def audit(
         run_id=run_id,
     )
 
+
+# ============================================================
+# 9. EXECUTOR PRINCIPAL
+# ============================================================
 
 def main():
     parser = argparse.ArgumentParser(
