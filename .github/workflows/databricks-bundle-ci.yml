@@ -422,8 +422,13 @@ jobs:
               "Job SSP exige Serverless environment v2",
           )
           require(
-              spec.get("dependencies") == ["geopandas==1.1.1"],
-              "Dependencias do Job SSP devem ser exatamente GeoPandas 1.1.1",
+              spec.get("dependencies") == [
+                  "geopandas==1.1.1",
+                  "numpy==1.26.4",
+                  "pandas==2.2.3",
+                  "pyarrow==14.0.1",
+              ],
+              "Dependencias do Job SSP devem corresponder ao conjunto aprovado",
           )
 
           task = ssp_tasks["validar_silver_ssp_spatial"]
