@@ -1,0 +1,78 @@
+
+# ============================================================
+# BairroIQ | Silver ObservaSampa | Job de Validacao
+# ============================================================
+#
+# Objetivo:
+#   Validar a transformacao Silver dos indicadores distritais
+#   do ObservaSampa usando dados reais do Databricks.
+#
+# Seguranca:
+#   - Execucao somente leitura (--check)
+#   - Nenhuma publicacao automatica
+#   - Sem sobrescrita de tabelas
+#   - Sem agendamento automatico
+#   - Sem repeticoes automaticas
+#   - Uma execucao simultanea
+#   - Ambiente Databricks Serverless
+#
+# Fonte:
+#   workspace.bronze.observa_sampa
+#
+# Referencia territorial:
+#   workspace.silver.geosampa_equipamentos_distrito
+#
+# Destino consultado:
+#   workspace.silver.observasampa_indicadores_distrito
+#
+# ============================================================
+
+resources:
+  jobs:
+    bairroiq_silver_observasampa_check_job:
+      name: bairroiq-silver-observasampa-check-job
+
+      description: >-
+        Executa validacao somente leitura da Silver ObservaSampa.
+        Verifica integridade territorial dos 96 distritos,
+        indicadores, anos, conversoes numericas, chaves unicas
+        e consistencia com a tabela Silver existente.
+        Nao publica nem altera dados.
+
+      # Bloqueia execucoes simultaneas.
+      max_concurrent_runs: 1
+
+      # Tempo limite total de 30 minutos.
+      timeout_seconds: 1800
+
+      queue:
+        enabled: true
+
+      # Ambiente Serverless.
+      environments:
+        - environment_key: observasampa_serverless
+          spec:
+            environment_version: "2"
+
+      tasks:
+        - task_key: validar_silver_observasampa
+
+          description: >-
+            Executa o runner Silver ObservaSampa em modo
+            somente leitura, validando a transformacao
+            e comparando com a Silver publicada.
+
+          environment_key: observasampa_serverless
+
+          timeout_seconds: 1500
+
+          # Sem retentativas automaticas.
+          max_retries: 0
+
+          spark_python_task:
+            python_file: ../silver_observasampa_runner.py
+            source: WORKSPACE
+
+            # Obrigatoriamente somente leitura.
+            parameters:
+              - "--check"

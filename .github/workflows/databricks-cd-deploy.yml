@@ -1,4 +1,3 @@
-
 name: BarrioIQ - Databricks CD Deploy
 
 on:
@@ -32,10 +31,9 @@ jobs:
       BARRIOIQ_JOB_ID: ${{ vars.BARRIOIQ_EXISTING_JOB_ID }}
 
     steps:
-      # ==============================================
-      # 01 - CHECKOUT
-      # ==============================================
-
+      # ========================================================
+      # 01 - CHECKOUT E QUALITY GATES
+      # ========================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -43,10 +41,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      # ==============================================
-      # 02 - QUALITY GATES
-      # ==============================================
 
       - name: Run data quality tests
         run: |
@@ -58,10 +52,9 @@ jobs:
       - name: Validate Bronze DDL files without applying
         run: python barrioiq_pipeline/bronze_ddl_runner.py
 
-      # ==============================================
-      # 03 - DATABRICKS AUTHENTICATION
-      # ==============================================
-
+      # ========================================================
+      # 02 - AUTENTICACAO DATABRICKS
+      # ========================================================
       - name: Install Databricks CLI
         uses: databricks/setup-cli@main
 
@@ -72,23 +65,21 @@ jobs:
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
         run: |
           python - <<'PY'
-          import os
-          import json
           import base64
+          import json
+          import os
           from urllib.parse import urlencode
           from urllib.request import Request, urlopen
 
           host = os.environ["DATABRICKS_HOST"].rstrip("/")
           client_id = os.environ["DATABRICKS_CLIENT_ID"]
           secret = os.environ["DATABRICKS_CLIENT_SECRET"]
-
           if not all((host, client_id, secret)):
               raise RuntimeError("Missing OAuth configuration")
 
           credentials = base64.b64encode(
               f"{client_id}:{secret}".encode()
           ).decode()
-
           request = Request(
               f"{host}/oidc/v1/token",
               data=urlencode({
@@ -101,22 +92,18 @@ jobs:
               },
               method="POST",
           )
-
           with urlopen(request, timeout=30) as response:
               token = json.load(response)["access_token"]
 
           print(f"::add-mask::{token}")
-
           with open(os.environ["GITHUB_ENV"], "a") as env:
               env.write(f"DATABRICKS_TOKEN={token}\n")
-
           print("OAUTH_AUTHENTICATION_SUCCESS")
           PY
 
-      # ==============================================
-      # 04 - PRESERVE EXISTING QUALITY JOB
-      # ==============================================
-
+      # ========================================================
+      # 03 - VERIFICACAO E SNAPSHOT DO QUALITY JOB
+      # ========================================================
       - name: Verify and snapshot existing quality Job
         shell: bash
         run: |
@@ -127,70 +114,37 @@ jobs:
           from pathlib import Path
 
           expected_id = "604667021938916"
-
           if os.environ["BARRIOIQ_JOB_ID"] != expected_id:
               raise RuntimeError("Unexpected quality Job ID")
-
           result = subprocess.run(
-              [
-                  "databricks",
-                  "jobs",
-                  "get",
-                  expected_id,
-                  "--output",
-                  "json",
-              ],
-              check=True,
-              capture_output=True,
-              text=True,
+              ["databricks", "jobs", "get", expected_id,
+               "--output", "json"],
+              check=True, capture_output=True, text=True,
           )
-
           job = json.loads(result.stdout)
           settings = job.get("settings") or {}
-
           if str(job.get("job_id")) != expected_id:
               raise RuntimeError("Quality Job ID mismatch")
-
-          if not settings.get("name", "").endswith(
-              "barrioiq-smoke-job"
-          ):
+          if not settings.get("name", "").endswith("barrioiq-smoke-job"):
               raise RuntimeError("Unexpected quality Job name")
-
           tasks = {
               task["task_key"]: task
               for task in settings.get("tasks", [])
           }
-
-          if set(tasks) != {
-              "validar_ambiente",
-              "validar_qualidade",
-          }:
+          if set(tasks) != {"validar_ambiente", "validar_qualidade"}:
               raise RuntimeError("Unexpected quality Job tasks")
-
           if tasks["validar_qualidade"].get("depends_on") != [
               {"task_key": "validar_ambiente"}
           ]:
-              raise RuntimeError(
-                  "Unexpected quality Job dependency"
-              )
-
-          path = (
-              Path(os.environ["RUNNER_TEMP"])
-              / "quality-before.json"
-          )
-
-          path.write_text(
-              json.dumps(job),
-              encoding="utf-8",
-          )
-
+              raise RuntimeError("Unexpected quality Job dependency")
+          path = Path(os.environ["RUNNER_TEMP"]) / "quality-before.json"
+          path.write_text(json.dumps(job), encoding="utf-8")
           print("QUALITY_JOB_VERIFIED")
           PY
 
-      # ==============================================
-      # 05 - VALIDATE DATABRICKS BUNDLE
-      # ==============================================
-
+      # ========================================================
+      # 04 - VALIDACAO DO BUNDLE E BINDING
+      # ========================================================
       - name: Validate Bundle
         working-directory: barrioiq_pipeline
         run: databricks bundle validate --target dev
@@ -208,33 +162,22 @@ jobs:
           import os
           from pathlib import Path
 
-          path = (
-              Path(os.environ["RUNNER_TEMP"])
-              / "bundle-before.json"
-          )
-
           data = json.loads(
-              path.read_text(encoding="utf-8")
+              (Path(os.environ["RUNNER_TEMP"]) / "bundle-before.json")
+              .read_text(encoding="utf-8")
           )
-
-          jobs = (
-              (data.get("resources") or {}).get("jobs") or {}
-          )
-
+          jobs = (data.get("resources") or {}).get("jobs") or {}
           smoke = jobs.get("barrioiq_smoke_job") or {}
-
           if str(smoke.get("id")) != os.environ["BARRIOIQ_JOB_ID"]:
               raise RuntimeError(
                   "Bundle is not bound to expected quality Job"
               )
-
           print("QUALITY_JOB_BINDING_VERIFIED")
           PY
 
-      # ==============================================
-      # 06 - GENERATE DEPLOYMENT PLAN
-      # ==============================================
-
+      # ========================================================
+      # 05 - PLANO RESTRITIVO
+      # ========================================================
       - name: Generate deployment plan
         working-directory: barrioiq_pipeline
         run: |
@@ -251,128 +194,73 @@ jobs:
           import subprocess
           from pathlib import Path
 
-          path = (
-              Path(os.environ["RUNNER_TEMP"])
-              / "bairroiq-plan.json"
-          )
-
+          temp = Path(os.environ["RUNNER_TEMP"])
           data = json.loads(
-              path.read_text(encoding="utf-8")
+              (temp / "bairroiq-plan.json").read_text(encoding="utf-8")
           )
-
-          if not isinstance(data, dict):
-              raise RuntimeError(
-                  "Invalid deployment plan document"
-              )
-
-          if "plan" not in data or not isinstance(
-              data["plan"], dict
+          if not isinstance(data, dict) or not isinstance(
+              data.get("plan"), dict
           ):
-              raise RuntimeError(
-                  "Unexpected deployment plan format"
-              )
+              raise RuntimeError("Unexpected deployment plan format")
 
-          # ==========================================
-          # POLITICA RESTRITIVA DE IMPLANTACAO
-          # ==========================================
-          #
-          # Smoke:
-          #   Preservar o Job existente.
-          #
-          # Bronze:
-          #   Criar, se necessario, ou preservar.
-          #
-          # Silver IBGE:
-          #   Criar, se necessario, ou preservar.
-          #
-          # Silver SSP:
-          #   Preservar ou atualizar somente as dependencias do
-          #   Job ja implantado. Proibir criacao, exclusao e execucao.
-          #   O update exige que o estado anterior corresponda
-          #   exatamente ao ambiente legado conhecido.
-          #
-          # Qualquer outro recurso ou acao e bloqueado.
-          #
-          # ==========================================
-
+          # Apenas o novo ObservaSampa pode ser criado.
+          # Smoke, Bronze e Silver IBGE nao podem ser atualizados.
+          # SSP so admite a atualizacao legada ja protegida abaixo.
           allowed_actions = {
-              "resources.jobs.barrioiq_smoke_job": {
-                  "skip"
-              },
+              "resources.jobs.barrioiq_smoke_job": {"skip"},
               "resources.jobs.bairroiq_bronze_ddl_job": {
-                  "create",
-                  "skip",
+                  "create", "skip",
               },
               "resources.jobs.bairroiq_silver_ibge_check_job": {
-                  "create",
-                  "skip",
+                  "create", "skip",
               },
               "resources.jobs.bairroiq_silver_ssp_check_job": {
-                  "update",
-                  "skip",
+                  "update", "skip",
+              },
+              "resources.jobs.bairroiq_silver_observasampa_check_job": {
+                  "create", "skip",
               },
           }
 
           for resource, change in data["plan"].items():
-
               if resource not in allowed_actions:
-                  raise RuntimeError(
-                      f"Unexpected resource: {resource}"
-                  )
-
+                  raise RuntimeError(f"Unexpected resource: {resource}")
               if not isinstance(change, dict):
-                  raise RuntimeError(
-                      f"Invalid change: {resource}"
-                  )
-
+                  raise RuntimeError(f"Invalid change: {resource}")
               action = change.get("action")
-
               if action not in allowed_actions[resource]:
                   raise RuntimeError(
                       f"Blocked action: {resource} -> {action}"
                   )
 
-              # Um update SSP so pode partir da configuracao
-              # antiga conhecida, identificada pelo Bundle.
-              # Caso tenha ocorrido outra mudanca, bloquear.
+              # Preserva exatamente a protecao legada de update SSP.
               if (
                   resource == "resources.jobs.bairroiq_silver_ssp_check_job"
                   and action == "update"
               ):
                   snapshot = json.loads(
-                      (
-                          Path(os.environ["RUNNER_TEMP"])
-                          / "bundle-before.json"
-                      ).read_text(encoding="utf-8")
+                      (temp / "bundle-before.json")
+                      .read_text(encoding="utf-8")
                   )
-
                   jobs_before = (
-                      (snapshot.get("resources") or {})
-                      .get("jobs") or {}
+                      (snapshot.get("resources") or {}).get("jobs") or {}
                   )
                   ssp_before = jobs_before.get(
                       "bairroiq_silver_ssp_check_job"
                   ) or {}
                   ssp_id = str(ssp_before.get("id", ""))
-
                   if not ssp_id.isdigit():
                       raise RuntimeError(
                           "SSP update blocked: existing Bundle binding missing"
                       )
-
                   result = subprocess.run(
-                      [
-                          "databricks", "jobs", "get", ssp_id,
-                          "--output", "json",
-                      ],
-                      capture_output=True,
-                      check=True,
-                      text=True,
+                      ["databricks", "jobs", "get", ssp_id,
+                       "--output", "json"],
+                      capture_output=True, check=True, text=True,
                   )
                   existing = json.loads(result.stdout)
                   settings = existing.get("settings") or {}
                   envs = settings.get("environments") or []
-
                   if (
                       str(existing.get("job_id")) != ssp_id
                       or not settings.get("name", "").endswith(
@@ -390,23 +278,16 @@ jobs:
                       raise RuntimeError(
                           "SSP update blocked: unexpected previous Job settings"
                       )
+                  print("SSP_LEGACY_DEPENDENCIES_VERIFIED")
 
-                  print(
-                      "SSP_LEGACY_DEPENDENCIES_VERIFIED",
-                      flush=True,
-                  )
-
-              print(
-                  f"APPROVED: {resource} -> {action}"
-              )
+              print(f"APPROVED: {resource} -> {action}")
 
           print("DEPLOYMENT_PLAN_APPROVED")
           PY
 
-      # ==============================================
-      # 07 - DEPLOY APPROVED PLAN
-      # ==============================================
-
+      # ========================================================
+      # 06 - DEPLOY DO PLANO APROVADO
+      # ========================================================
       - name: Deploy approved plan
         working-directory: barrioiq_pipeline
         run: |
@@ -416,10 +297,9 @@ jobs:
             --auto-approve \
             --fail-on-active-runs
 
-      # ==============================================
-      # 08 - VERIFY DEPLOYED JOBS
-      # ==============================================
-
+      # ========================================================
+      # 07 - VERIFICACAO DOS CINCO JOBS
+      # ========================================================
       - name: Verify deployed Jobs
         working-directory: barrioiq_pipeline
         shell: bash
@@ -442,498 +322,260 @@ jobs:
 
           def get_job(job_id):
               result = subprocess.run(
-                  [
-                      "databricks",
-                      "jobs",
-                      "get",
-                      str(job_id),
-                      "--output",
-                      "json",
-                  ],
-                  check=True,
-                  capture_output=True,
-                  text=True,
+                  ["databricks", "jobs", "get", str(job_id),
+                   "--output", "json"],
+                  check=True, capture_output=True, text=True,
               )
               return json.loads(result.stdout)
 
           summary = json.loads(
-              (temp / "bundle-after.json").read_text(
-                  encoding="utf-8"
-              )
+              (temp / "bundle-after.json").read_text(encoding="utf-8")
           )
+          jobs = (summary.get("resources") or {}).get("jobs") or {}
 
-          jobs = (
-              (summary.get("resources") or {}).get("jobs")
-              or {}
-          )
+          names = {
+              "barrioiq_smoke_job",
+              "bairroiq_bronze_ddl_job",
+              "bairroiq_silver_ibge_check_job",
+              "bairroiq_silver_ssp_check_job",
+              "bairroiq_silver_observasampa_check_job",
+          }
+          require(set(jobs) == names, "Unexpected deployed Jobs")
 
-          # ==========================================
-          # VALIDAR OS QUATRO JOBS DO BUNDLE
-          # ==========================================
-
+          ids = {
+              key: str(jobs[key].get("id") or "")
+              for key in names
+          }
           require(
-              set(jobs) == {
-                  "barrioiq_smoke_job",
-                  "bairroiq_bronze_ddl_job",
-                  "bairroiq_silver_ibge_check_job",
-                  "bairroiq_silver_ssp_check_job",
-              },
-              "Unexpected deployed Jobs",
+              all(value.isdigit() for value in ids.values()),
+              "Invalid Job ID in deployed Bundle",
+          )
+          require(
+              len(set(ids.values())) == len(names),
+              "Duplicate Databricks Job bindings",
           )
 
-          smoke_id = str(
-              jobs["barrioiq_smoke_job"].get("id")
-          )
-
-          bronze_id = str(
-              jobs["bairroiq_bronze_ddl_job"].get("id")
-          )
-
-          silver_id = str(
-              jobs["bairroiq_silver_ibge_check_job"].get("id")
-          )
-
-          ssp_id = str(
-              jobs["bairroiq_silver_ssp_check_job"].get("id")
-          )
+          smoke_id = ids["barrioiq_smoke_job"]
+          bronze_id = ids["bairroiq_bronze_ddl_job"]
+          silver_id = ids["bairroiq_silver_ibge_check_job"]
+          ssp_id = ids["bairroiq_silver_ssp_check_job"]
+          obs_id = ids["bairroiq_silver_observasampa_check_job"]
 
           require(
               smoke_id == os.environ["BARRIOIQ_JOB_ID"],
               "Quality Job binding changed",
           )
-
-          require(
-              bronze_id.isdigit() and bronze_id != smoke_id,
-              "Invalid Bronze Job ID",
-          )
-
-          require(
-              silver_id.isdigit()
-              and silver_id not in {smoke_id, bronze_id},
-              "Invalid Silver Job ID",
-          )
-
-          require(
-              ssp_id.isdigit()
-              and ssp_id not in {smoke_id, bronze_id, silver_id},
-              "Invalid SSP Job ID or duplicate binding",
-          )
-
-          # ==========================================
-          # PRESERVAR JOB SMOKE EXISTENTE
-          # ==========================================
-
           before = json.loads(
-              (temp / "quality-before.json").read_text(
-                  encoding="utf-8"
-              )
+              (temp / "quality-before.json").read_text(encoding="utf-8")
           )
-
           after = get_job(smoke_id)
-
           require(
               before.get("settings") == after.get("settings"),
               "Quality Job settings changed; review required",
           )
-
           print("QUALITY_JOB_SETTINGS_PRESERVED")
 
-          # ==========================================
-          # VALIDAR JOB BRONZE
-          # ==========================================
-
+          # ----------------------------------------------------
+          # Bronze: as duas tasks, dependencias e modo --apply.
+          # ----------------------------------------------------
           bronze = get_job(bronze_id)
-
+          require(str(bronze.get("job_id")) == bronze_id,
+                  "Bronze Job ID mismatch")
+          b = bronze.get("settings") or {}
           require(
-              str(bronze.get("job_id")) == bronze_id,
-              "Bronze Job ID mismatch",
-          )
-
-          settings = bronze.get("settings") or {}
-
-          require(
-              settings.get("name", "").endswith(
-                  "bairroiq-bronze-ddl-job"
-              ),
+              b.get("name", "").endswith("bairroiq-bronze-ddl-job"),
               "Unexpected Bronze Job name",
           )
-
-          for field in (
-              "schedule",
-              "trigger",
-              "continuous",
-          ):
-              require(
-                  not settings.get(field),
-                  f"Unexpected scheduling: {field}",
-              )
-
-          tasks = {
-              task["task_key"]: task
-              for task in settings.get("tasks", [])
-          }
-
+          require(b.get("max_concurrent_runs") == 1,
+                  "Unexpected Bronze concurrency")
+          for field in ("schedule", "trigger", "continuous"):
+              require(not b.get(field), f"Unexpected Bronze {field}")
+          bt = {item["task_key"]: item
+                for item in b.get("tasks", [])}
           require(
-              set(tasks) == {
-                  "validar_ddls_bronze",
-                  "aplicar_ddls_bronze",
-              },
+              set(bt) == {"validar_ddls_bronze", "aplicar_ddls_bronze"},
               "Unexpected Bronze tasks",
           )
-
-          validate = tasks["validar_ddls_bronze"]
-          apply = tasks["aplicar_ddls_bronze"]
-
+          validate = bt["validar_ddls_bronze"]
+          apply = bt["aplicar_ddls_bronze"]
+          require(not validate.get("depends_on"),
+                  "Unexpected Bronze validation dependency")
           require(
-              not validate.get("depends_on"),
-              "Unexpected validation dependency",
+              not (validate.get("spark_python_task") or {}).get("parameters"),
+              "Bronze validation received unexpected parameters",
           )
-
-          require(
-              not validate.get(
-                  "spark_python_task", {}
-              ).get("parameters"),
-              "Validation received unexpected parameters",
-          )
-
           require(
               apply.get("depends_on") == [
                   {"task_key": "validar_ddls_bronze"}
               ],
               "Unexpected Bronze application dependency",
           )
-
+          require(apply.get("run_if", "ALL_SUCCESS") == "ALL_SUCCESS",
+                  "Unexpected Bronze execution condition")
           require(
-              apply.get("run_if", "ALL_SUCCESS")
-              == "ALL_SUCCESS",
-              "Unexpected Bronze execution condition",
+              (apply.get("spark_python_task") or {}).get("parameters")
+              == ["--apply"],
+              "Unexpected Bronze application parameters",
           )
-
-          require(
-              apply.get(
-                  "spark_python_task", {}
-              ).get("parameters") == ["--apply"],
-              "Unexpected application parameters",
-          )
-
           for task in (validate, apply):
-
-              script = (
-                  task.get("spark_python_task") or {}
-              )
-
-              path = script.get("python_file", "")
-
+              script = task.get("spark_python_task") or {}
               require(
-                  path.endswith("/bronze_ddl_runner.py"),
+                  script.get("python_file", "").endswith(
+                      "/bronze_ddl_runner.py"
+                  ),
                   "Unexpected Bronze runner path",
               )
-
-              require(
-                  script.get("source") == "WORKSPACE",
-                  "Unexpected Bronze script source",
-              )
-
-              require(
-                  not task.get("disabled"),
-                  "Bronze task is disabled",
-              )
-
+              require(script.get("source") == "WORKSPACE",
+                      "Unexpected Bronze script source")
+              require(not task.get("disabled"),
+                      "Bronze task is disabled")
+              require(task.get("max_retries", 0) == 0,
+                      "Bronze retries must be disabled")
           print("BRONZE_JOB_SETTINGS_VERIFIED")
 
-          # ==========================================
-          # VALIDAR JOB SILVER IBGE
-          # ==========================================
-          #
-          # Regras obrigatorias:
-          #
-          # - Somente uma tarefa.
-          # - Somente parametro --check.
-          # - Sem publicacao automatica.
-          # - Sem agendamento.
-          # - Sem retries.
-          # - Serverless environment v2.
-          #
-          # ==========================================
-
-          silver = get_job(silver_id)
-
-          require(
-              str(silver.get("job_id")) == silver_id,
-              "Silver Job ID mismatch",
-          )
-
-          silver_settings = silver.get("settings") or {}
-
-          require(
-              silver_settings.get("name", "").endswith(
-                  "bairroiq-silver-ibge-check-job"
-              ),
-              "Unexpected Silver Job name",
-          )
-
-          for field in (
-              "schedule",
-              "trigger",
-              "continuous",
-          ):
-              require(
-                  not silver_settings.get(field),
-                  f"Unexpected Silver scheduling: {field}",
-              )
-
-          require(
-              silver_settings.get("max_concurrent_runs") == 1,
-              "Unexpected Silver concurrency",
-          )
-
-          silver_tasks = (
-              silver_settings.get("tasks") or []
-          )
-
-          require(
-              len(silver_tasks) == 1
-              and silver_tasks[0].get("task_key")
-              == "validar_silver_ibge",
-              "Unexpected Silver tasks",
-          )
-
-          silver_task = silver_tasks[0]
-
-          require(
-              not silver_task.get("depends_on"),
-              "Unexpected Silver dependencies",
-          )
-
-          require(
-              silver_task.get("max_retries", 0) == 0,
-              "Silver retries must be disabled",
-          )
-
-          require(
-              silver_task.get("environment_key")
-              == "silver_serverless",
-              "Unexpected Silver environment",
-          )
-
-          require(
-              not silver_task.get("disabled"),
-              "Silver validation task is disabled",
-          )
-
-          silver_script = (
-              silver_task.get("spark_python_task") or {}
-          )
-
-          require(
-              silver_script.get("source") == "WORKSPACE",
-              "Unexpected Silver script source",
-          )
-
-          require(
-              silver_script.get("python_file", "").endswith(
-                  "/silver_ibge_runner.py"
-              ),
-              "Unexpected Silver runner path",
-          )
-
-          require(
-              silver_script.get("parameters") == ["--check"],
-              "Silver must use --check only",
-          )
-
-          silver_envs = {
-              item.get("environment_key"): item.get("spec") or {}
-              for item in (
-                  silver_settings.get("environments") or []
-              )
+          # ----------------------------------------------------
+          # Silver: contrato de execucao somente leitura.
+          # ----------------------------------------------------
+          expected_silver = {
+              "ibge": {
+                  "id": silver_id,
+                  "name": "bairroiq-silver-ibge-check-job",
+                  "task": "validar_silver_ibge",
+                  "script": "silver_ibge_runner.py",
+                  "env": "silver_serverless",
+                  "job_timeout": 900,
+                  "task_timeout": 600,
+                  "deps": None,
+              },
+              "ssp": {
+                  "id": ssp_id,
+                  "name": "bairroiq-silver-ssp-check-job",
+                  "task": "validar_silver_ssp_spatial",
+                  "script": "silver_ssp_spatial_runner.py",
+                  "env": "ssp_serverless",
+                  "job_timeout": 2400,
+                  "task_timeout": 2100,
+                  "deps": [
+                      "geopandas==1.1.1",
+                      "numpy==1.26.4",
+                      "pandas==2.2.3",
+                      "pyarrow==14.0.1",
+                  ],
+              },
+              "observasampa": {
+                  "id": obs_id,
+                  "name": "bairroiq-silver-observasampa-check-job",
+                  "task": "validar_silver_observasampa",
+                  "script": "silver_observasampa_runner.py",
+                  "env": "observasampa_serverless",
+                  "job_timeout": 1800,
+                  "task_timeout": 1500,
+                  "deps": None,
+              },
           }
 
-          require(
-              set(silver_envs) == {"silver_serverless"},
-              "Unexpected Silver environments",
-          )
-
-          require(
-              str(
-                  silver_envs["silver_serverless"].get(
-                      "environment_version"
-                  )
-              ) == "2",
-              "Unexpected Silver environment version",
-          )
-
-          print("SILVER_JOB_SETTINGS_VERIFIED")
-
-          # ==========================================
-          # VALIDAR NOVO JOB SILVER SSP-SP
-          # ==========================================
-          #
-          # Somente um Job novo e permitido.
-          # Uma unica tarefa Serverless, --check.
-          # Sem schedule, trigger, continuous, retries ou escrita.
-          # O CD NAO executa este Job.
-          # ==========================================
-
-          ssp = get_job(ssp_id)
-
-          require(
-              str(ssp.get("job_id")) == ssp_id,
-              "SSP Job ID mismatch",
-          )
-
-          ssp_settings = ssp.get("settings") or {}
-
-          require(
-              ssp_settings.get("name", "").endswith(
-                  "bairroiq-silver-ssp-check-job"
-              ),
-              "Unexpected SSP Job name",
-          )
-
-          for field in ("schedule", "trigger", "continuous"):
+          for key, expected in expected_silver.items():
+              job = get_job(expected["id"])
               require(
-                  not ssp_settings.get(field),
-                  f"Unexpected SSP scheduling: {field}",
+                  str(job.get("job_id")) == expected["id"],
+                  f"{key}: Job ID mismatch",
               )
-
-          require(
-              ssp_settings.get("max_concurrent_runs") == 1,
-              "Unexpected SSP concurrency",
-          )
-
-          require(
-              ssp_settings.get("timeout_seconds") == 2400,
-              "Unexpected SSP Job timeout",
-          )
-
-          require(
-              (ssp_settings.get("queue") or {}).get("enabled") is True,
-              "SSP queue must be enabled",
-          )
-
-          ssp_tasks = ssp_settings.get("tasks") or []
-
-          require(
-              len(ssp_tasks) == 1
-              and ssp_tasks[0].get("task_key")
-              == "validar_silver_ssp_spatial",
-              "Unexpected SSP task set",
-          )
-
-          ssp_task = ssp_tasks[0]
-
-          require(
-              not ssp_task.get("depends_on"),
-              "Unexpected SSP task dependency",
-          )
-
-          require(
-              ssp_task.get("max_retries", 0) == 0,
-              "SSP retries must be disabled",
-          )
-
-          require(
-              ssp_task.get("timeout_seconds") == 2100,
-              "Unexpected SSP task timeout",
-          )
-
-          require(
-              ssp_task.get("environment_key") == "ssp_serverless",
-              "Unexpected SSP environment binding",
-          )
-
-          require(
-              not ssp_task.get("disabled"),
-              "SSP validation task is disabled",
-          )
-
-          require(
-              not any(
-                  field in ssp_task
-                  for field in (
-                      "new_cluster",
-                      "existing_cluster_id",
-                      "job_cluster_key",
+              settings = job.get("settings") or {}
+              require(
+                  settings.get("name", "").endswith(expected["name"]),
+                  f"{key}: Unexpected Job name",
+              )
+              require(settings.get("max_concurrent_runs") == 1,
+                      f"{key}: Unexpected concurrency")
+              require(
+                  settings.get("timeout_seconds")
+                  == expected["job_timeout"],
+                  f"{key}: Unexpected Job timeout",
+              )
+              require(
+                  (settings.get("queue") or {}).get("enabled") is True,
+                  f"{key}: Queue must be enabled",
+              )
+              for field in ("schedule", "trigger", "continuous"):
+                  require(
+                      not settings.get(field),
+                      f"{key}: Unexpected scheduling ({field})",
                   )
-              ),
-              "SSP must use Serverless environment",
-          )
 
-          ssp_script = ssp_task.get("spark_python_task") or {}
-
-          require(
-              ssp_script.get("source") == "WORKSPACE",
-              "Unexpected SSP script source",
-          )
-
-          require(
-              ssp_script.get("python_file", "").endswith(
-                  "/silver_ssp_spatial_runner.py"
-              ),
-              "Unexpected SSP runner path",
-          )
-
-          require(
-              ssp_script.get("parameters") == ["--check"],
-              "SSP must use --check only",
-          )
-
-          ssp_envs = {
-              item.get("environment_key"): item.get("spec") or {}
-              for item in (ssp_settings.get("environments") or [])
-          }
-
-          require(
-              set(ssp_envs) == {"ssp_serverless"},
-              "Unexpected SSP environments",
-          )
-
-          ssp_spec = ssp_envs["ssp_serverless"]
-
-          require(
-              str(ssp_spec.get("environment_version")) == "2",
-              "Unexpected SSP environment version",
-          )
-
-          require(
-              ssp_spec.get("dependencies") == [
-                  "geopandas==1.1.1",
-                  "numpy==1.26.4",
-                  "pandas==2.2.3",
-                  "pyarrow==14.0.1",
-              ],
-              "Unexpected SSP dependencies",
-          )
-
-          print("SSP_JOB_SETTINGS_VERIFIED")
-
-          # ==========================================
-          # RESUMO DO DEPLOY
-          # ==========================================
+              tasks = settings.get("tasks") or []
+              require(
+                  len(tasks) == 1
+                  and tasks[0].get("task_key") == expected["task"],
+                  f"{key}: Unexpected tasks",
+              )
+              task = tasks[0]
+              require(not task.get("depends_on"),
+                      f"{key}: Unexpected dependency")
+              require(task.get("max_retries", 0) == 0,
+                      f"{key}: Automatic retries are forbidden")
+              require(
+                  task.get("timeout_seconds")
+                  == expected["task_timeout"],
+                  f"{key}: Unexpected task timeout",
+              )
+              require(task.get("environment_key") == expected["env"],
+                      f"{key}: Unexpected environment binding")
+              require(not task.get("disabled"),
+                      f"{key}: Task is disabled")
+              require(
+                  not any(
+                      field in task for field in (
+                          "new_cluster", "existing_cluster_id",
+                          "job_cluster_key",
+                      )
+                  ),
+                  f"{key}: Dedicated clusters are forbidden",
+              )
+              script = task.get("spark_python_task") or {}
+              require(script.get("source") == "WORKSPACE",
+                      f"{key}: Script must use WORKSPACE")
+              require(
+                  script.get("python_file", "").endswith(
+                      "/" + expected["script"]
+                  ),
+                  f"{key}: Unexpected runner path",
+              )
+              require(script.get("parameters") == ["--check"],
+                      f"{key}: Only --check is allowed")
+              envs = {
+                  item.get("environment_key"): item.get("spec") or {}
+                  for item in settings.get("environments") or []
+              }
+              require(set(envs) == {expected["env"]},
+                      f"{key}: Unexpected environments")
+              spec = envs[expected["env"]]
+              require(str(spec.get("environment_version")) == "2",
+                      f"{key}: Requires Serverless environment v2")
+              if expected["deps"] is None:
+                  require(
+                      not spec.get("dependencies"),
+                      f"{key}: Unexpected dependencies",
+                  )
+              else:
+                  require(spec.get("dependencies") == expected["deps"],
+                          f"{key}: Unexpected dependencies")
+              print(f"SILVER_{key.upper()}_JOB_SETTINGS_VERIFIED")
 
           print(f"QUALITY_JOB_ID: {smoke_id}")
           print(f"BRONZE_JOB_ID: {bronze_id}")
           print(f"SILVER_JOB_ID: {silver_id}")
           print(f"SSP_JOB_ID: {ssp_id}")
-
+          print(f"OBSERVASAMPA_JOB_ID: {obs_id}")
+          print("OBSERVASAMPA_JOB_DEPLOYED_NOT_EXECUTED")
           print("SSP_JOB_DEPLOYED_NOT_EXECUTED")
           print("SILVER_JOB_DEPLOYED_NOT_EXECUTED")
           print("BRONZE_JOB_DEPLOYED_NOT_EXECUTED")
           print("BARRIOIQ_CD_DEPLOY_SUCCESS")
           PY
 
-      # ==============================================
-      # 09 - EXECUTE BRONZE JOB
-      # ==============================================
-      #
-      # Importante:
-      # O CD continua executando somente a Bronze.
-      # Os Jobs Silver IBGE e SSP serao implantados,
-      # mas nao executados automaticamente.
-      #
-      # ==============================================
-
+      # ========================================================
+      # 08 - EXECUCAO AUTOMATICA SOMENTE DA BRONZE
+      # ========================================================
       - name: Execute Bronze DDL Job
         shell: bash
         run: |
@@ -947,81 +589,39 @@ jobs:
 
           host = os.environ["DATABRICKS_HOST"].rstrip("/")
           token = os.environ["DATABRICKS_TOKEN"]
-
           temp = Path(os.environ["RUNNER_TEMP"])
-
           summary = json.loads(
-              (temp / "bundle-after.json").read_text(
-                  encoding="utf-8"
-              )
+              (temp / "bundle-after.json").read_text(encoding="utf-8")
           )
-
           jobs = summary["resources"]["jobs"]
-
-          bronze_id = str(
-              jobs["bairroiq_bronze_ddl_job"]["id"]
-          )
-
-          quality_id = str(
-              jobs["barrioiq_smoke_job"]["id"]
-          )
-
-          if not bronze_id.isdigit():
-              raise RuntimeError("Invalid Bronze Job ID")
-
-          if bronze_id == quality_id:
-              raise RuntimeError(
-                  "Bronze Job cannot be Quality Job"
-              )
-
-          # ------------------------------------------
-          # DATABRICKS API CLIENT
-          # ------------------------------------------
+          bronze_id = str(jobs["bairroiq_bronze_ddl_job"]["id"])
+          quality_id = str(jobs["barrioiq_smoke_job"]["id"])
+          if not bronze_id.isdigit() or bronze_id == quality_id:
+              raise RuntimeError("Invalid Bronze Job identity")
 
           def call_api(endpoint, payload=None):
               url = f"{host}/api/2.1/{endpoint}"
-
               headers = {
                   "Authorization": f"Bearer {token}",
                   "Content-Type": "application/json",
               }
-
-              if payload is None:
-                  data = None
-                  method = "GET"
-              else:
-                  data = json.dumps(payload).encode("utf-8")
-                  method = "POST"
-
-              request = Request(
-                  url,
-                  data=data,
-                  headers=headers,
-                  method=method,
+              data = (
+                  None if payload is None
+                  else json.dumps(payload).encode("utf-8")
               )
-
+              request = Request(
+                  url, data=data, headers=headers,
+                  method="GET" if data is None else "POST",
+              )
               with urlopen(request, timeout=30) as response:
                   return json.load(response)
-
-          # ------------------------------------------
-          # IDEMPOTENCY
-          # ------------------------------------------
 
           idempotency_token = (
               f"bairroiq-bronze-"
               f"{os.environ['GITHUB_RUN_ID']}-"
               f"{os.environ['GITHUB_RUN_ATTEMPT']}"
           )
-
-          print(
-              f"BRONZE_JOB_ID: {bronze_id}",
-              flush=True,
-          )
-
-          # ------------------------------------------
-          # TRIGGER JOB
-          # ------------------------------------------
-
+          print(f"BRONZE_JOB_ID: {bronze_id}", flush=True)
           response = call_api(
               "jobs/run-now",
               {
@@ -1029,70 +629,32 @@ jobs:
                   "idempotency_token": idempotency_token,
               },
           )
-
           run_id = str(response.get("run_id", ""))
-
           if not run_id.isdigit():
-              raise RuntimeError(
-                  "Databricks did not return valid run ID"
-              )
-
-          print(
-              f"BRONZE_RUN_ID: {run_id}",
-              flush=True,
-          )
-
-          # ------------------------------------------
-          # MONITOR EXECUTION
-          # ------------------------------------------
+              raise RuntimeError("Databricks did not return valid run ID")
+          print(f"BRONZE_RUN_ID: {run_id}", flush=True)
 
           deadline = time.monotonic() + 35 * 60
-
           expected_tasks = {
               "validar_ddls_bronze",
               "aplicar_ddls_bronze",
           }
-
-          terminal_states = {
-              "TERMINATED",
-              "SKIPPED",
-              "INTERNAL_ERROR",
-          }
-
+          terminal_states = {"TERMINATED", "SKIPPED", "INTERNAL_ERROR"}
           last_state = None
 
           while time.monotonic() < deadline:
-
               run = call_api(
-                  "jobs/runs/get?"
-                  + urlencode({"run_id": run_id})
+                  "jobs/runs/get?" + urlencode({"run_id": run_id})
               )
-
               if str(run.get("run_id")) != run_id:
-                  raise RuntimeError(
-                      "Unexpected Databricks run ID"
-                  )
-
+                  raise RuntimeError("Unexpected Databricks run ID")
               if str(run.get("job_id")) != bronze_id:
-                  raise RuntimeError(
-                      "Run belongs to an unexpected Job"
-                  )
+                  raise RuntimeError("Run belongs to unexpected Job")
 
               state = run.get("state") or {}
-
-              lifecycle = state.get(
-                  "life_cycle_state", ""
-              )
-
-              result = state.get(
-                  "result_state", ""
-              )
-
-              current_state = (
-                  lifecycle,
-                  result,
-              )
-
+              lifecycle = state.get("life_cycle_state", "")
+              result = state.get("result_state", "")
+              current_state = (lifecycle, result)
               if current_state != last_state:
                   print(
                       f"BRONZE_STATE: {lifecycle}/{result}",
@@ -1100,75 +662,35 @@ jobs:
                   )
                   last_state = current_state
 
-              # --------------------------------------
-              # TERMINAL RUN
-              # --------------------------------------
-
               if lifecycle in terminal_states:
-
                   tasks = run.get("tasks") or []
-
                   task_results = {
                       task["task_key"]: (
                           task.get("state") or {}
                       ).get("result_state")
                       for task in tasks
                   }
-
                   if result != "SUCCESS":
                       raise RuntimeError(
-                          f"Bronze execution failed: "
-                          f"{lifecycle}/{result}; "
+                          f"Bronze execution failed: {lifecycle}/{result}; "
                           f"tasks={task_results}"
                       )
-
                   if set(task_results) != expected_tasks:
-                      raise RuntimeError(
-                          f"Unexpected tasks: {task_results}"
-                      )
-
+                      raise RuntimeError(f"Unexpected tasks: {task_results}")
                   for task_key in expected_tasks:
-
                       if task_results[task_key] != "SUCCESS":
-                          raise RuntimeError(
-                              f"Task failed: {task_key}"
-                          )
+                          raise RuntimeError(f"Task failed: {task_key}")
 
-                  # ----------------------------------
-                  # SUCCESS
-                  # ----------------------------------
-
-                  print(
-                      "BRONZE_VALIDATION_SUCCESS",
-                      flush=True,
-                  )
-
-                  print(
-                      "BRONZE_APPLICATION_SUCCESS",
-                      flush=True,
-                  )
-
-                  run_url = run.get(
-                      "run_page_url", ""
-                  )
-
+                  print("BRONZE_VALIDATION_SUCCESS", flush=True)
+                  print("BRONZE_APPLICATION_SUCCESS", flush=True)
+                  run_url = run.get("run_page_url", "")
                   if run_url:
-                      print(
-                          f"BRONZE_RUN_URL: {run_url}",
-                          flush=True,
-                      )
-
-                  report_path = os.environ.get(
-                      "GITHUB_STEP_SUMMARY"
-                  )
-
+                      print(f"BRONZE_RUN_URL: {run_url}", flush=True)
+                  report_path = os.environ.get("GITHUB_STEP_SUMMARY")
                   if report_path:
                       with open(
-                          report_path,
-                          "a",
-                          encoding="utf-8",
+                          report_path, "a", encoding="utf-8"
                       ) as report:
-
                           report.write(
                               "### BairroIQ Bronze DDL\n"
                               f"- Job ID: {bronze_id}\n"
@@ -1176,20 +698,12 @@ jobs:
                               "- Validation: SUCCESS\n"
                               "- Application: SUCCESS\n"
                           )
-
-                  print(
-                      "BARRIOIQ_CD_BRONZE_SUCCESS",
-                      flush=True,
-                  )
-
+                  print("BARRIOIQ_CD_BRONZE_SUCCESS", flush=True)
                   break
-
               time.sleep(15)
-
           else:
               raise TimeoutError(
                   f"Bronze run {run_id} exceeded "
                   "35-minute monitoring limit"
               )
-
           PY
