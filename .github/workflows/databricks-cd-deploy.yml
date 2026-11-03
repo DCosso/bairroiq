@@ -248,6 +248,7 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import subprocess
           from pathlib import Path
 
           path = (
@@ -285,8 +286,10 @@ jobs:
           #   Criar, se necessario, ou preservar.
           #
           # Silver SSP:
-          #   Criar o novo Job ou preservar se ja implantado.
-          #   Nunca atualizar, excluir ou executar automaticamente.
+          #   Preservar ou atualizar somente as dependencias do
+          #   Job ja implantado. Proibir criacao, exclusao e execucao.
+          #   O update exige que o estado anterior corresponda
+          #   exatamente ao ambiente legado conhecido.
           #
           # Qualquer outro recurso ou acao e bloqueado.
           #
@@ -305,7 +308,7 @@ jobs:
                   "skip",
               },
               "resources.jobs.bairroiq_silver_ssp_check_job": {
-                  "create",
+                  "update",
                   "skip",
               },
           }
@@ -327,6 +330,70 @@ jobs:
               if action not in allowed_actions[resource]:
                   raise RuntimeError(
                       f"Blocked action: {resource} -> {action}"
+                  )
+
+              # Um update SSP so pode partir da configuracao
+              # antiga conhecida, identificada pelo Bundle.
+              # Caso tenha ocorrido outra mudanca, bloquear.
+              if (
+                  resource == "resources.jobs.bairroiq_silver_ssp_check_job"
+                  and action == "update"
+              ):
+                  snapshot = json.loads(
+                      (
+                          Path(os.environ["RUNNER_TEMP"])
+                          / "bundle-before.json"
+                      ).read_text(encoding="utf-8")
+                  )
+
+                  jobs_before = (
+                      (snapshot.get("resources") or {})
+                      .get("jobs") or {}
+                  )
+                  ssp_before = jobs_before.get(
+                      "bairroiq_silver_ssp_check_job"
+                  ) or {}
+                  ssp_id = str(ssp_before.get("id", ""))
+
+                  if not ssp_id.isdigit():
+                      raise RuntimeError(
+                          "SSP update blocked: existing Bundle binding missing"
+                      )
+
+                  result = subprocess.run(
+                      [
+                          "databricks", "jobs", "get", ssp_id,
+                          "--output", "json",
+                      ],
+                      capture_output=True,
+                      check=True,
+                      text=True,
+                  )
+                  existing = json.loads(result.stdout)
+                  settings = existing.get("settings") or {}
+                  envs = settings.get("environments") or []
+
+                  if (
+                      str(existing.get("job_id")) != ssp_id
+                      or not settings.get("name", "").endswith(
+                          "bairroiq-silver-ssp-check-job"
+                      )
+                      or len(envs) != 1
+                      or envs[0].get("environment_key") != "ssp_serverless"
+                      or str((envs[0].get("spec") or {}).get(
+                          "environment_version"
+                      )) != "2"
+                      or (envs[0].get("spec") or {}).get(
+                          "dependencies"
+                      ) != ["geopandas==1.1.1"]
+                  ):
+                      raise RuntimeError(
+                          "SSP update blocked: unexpected previous Job settings"
+                      )
+
+                  print(
+                      "SSP_LEGACY_DEPENDENCIES_VERIFIED",
+                      flush=True,
                   )
 
               print(
@@ -830,7 +897,12 @@ jobs:
           )
 
           require(
-              ssp_spec.get("dependencies") == ["geopandas==1.1.1"],
+              ssp_spec.get("dependencies") == [
+                  "geopandas==1.1.1",
+                  "numpy==1.26.4",
+                  "pandas==2.2.3",
+                  "pyarrow==14.0.1",
+              ],
               "Unexpected SSP dependencies",
           )
 
