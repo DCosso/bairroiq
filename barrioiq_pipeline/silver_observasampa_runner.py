@@ -31,7 +31,9 @@ TARGET = "workspace.silver.observasampa_indicadores_distrito"
 EXPECTED_DISTRICTS = 96
 
 NUMERIC_PATTERN = r"^[+-]?[0-9]+([.,][0-9]{1,8})?$"
-AMBIGUOUS_PATTERN = r"^[+-]?[0-9]{1,3}[.,][0-9]{3}$"
+# ObservaSampa utiliza virgula como separador decimal.
+# Pontos com tres casas permanecem ambiguos.
+AMBIGUOUS_PATTERN = r"^[+-]?[0-9]{1,3}\.[0-9]{3}$"
 
 OUTPUT_COLUMNS = [
     "CD_DIST",
