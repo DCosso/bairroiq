@@ -1,10 +1,17 @@
+
 # ============================================================
-# BAIRROIQ | DATABRICKS CD PREVIEW | 7 JOBS | PLAN KEY FIX
+# BAIRROIQ | DATABRICKS CD PREVIEW | 7 JOBS
 # ============================================================
-# Este workflow e SOMENTE LEITURA.
-# Examina a proposta de deploy e sinaliza atualizacoes
-# que ainda exigem aprovacao no CD Deploy.
-# Nao publica tabelas nem executa jobs Databricks.
+#
+# Workflow somente leitura.
+# Nao faz deploy.
+# Nao executa jobs Databricks.
+# Nao modifica tabelas.
+#
+# Examina o plano de implantacao e informa alteracoes
+# que precisam de aprovacao no CD Deploy.
+#
+# ============================================================
 
 name: BarrioIQ - Databricks CD Preview
 
@@ -16,6 +23,7 @@ on:
     paths:
       - "barrioiq_pipeline/**"
       - ".github/workflows/databricks-cd-preview.yml"
+
   workflow_dispatch:
 
 permissions:
@@ -41,19 +49,39 @@ jobs:
       DATABRICKS_AUTH_TYPE: pat
 
     steps:
+      # ======================================================
+      # 01. CHECKOUT
+      # ======================================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # ======================================================
+      # 02. PYTHON
+      # ======================================================
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      # ======================================================
+      # 03. BRONZE READ-ONLY VALIDATION
+      # ======================================================
+
       - name: Validate Bronze DDL files without applying
         run: python bronze_ddl_runner.py
 
+      # ======================================================
+      # 04. DATABRICKS CLI
+      # ======================================================
+
       - name: Install Databricks CLI
         uses: databricks/setup-cli@main
+
+      # ======================================================
+      # 05. AUTENTICACAO OAUTH
+      # ======================================================
 
       - name: Obtain scoped OAuth token
         shell: bash
@@ -65,6 +93,7 @@ jobs:
           import base64
           import json
           import os
+
           from urllib.parse import urlencode
           from urllib.request import Request, urlopen
 
@@ -73,7 +102,9 @@ jobs:
           secret = os.environ["DATABRICKS_CLIENT_SECRET"]
 
           if not all((host, client_id, secret)):
-              raise RuntimeError("Missing OAuth configuration")
+              raise RuntimeError(
+                  "Missing OAuth configuration"
+              )
 
           credentials = base64.b64encode(
               f"{client_id}:{secret}".encode()
@@ -96,22 +127,42 @@ jobs:
               token = json.load(response)["access_token"]
 
           print(f"::add-mask::{token}")
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+
+          with open(
+              os.environ["GITHUB_ENV"],
+              "a",
+              encoding="utf-8",
+          ) as env:
               env.write(f"DATABRICKS_TOKEN={token}\n")
 
           print("OAuth authentication OK")
           PY
 
+      # ======================================================
+      # 06. VALIDAR BUNDLE
+      # ======================================================
+
       - name: Validate Databricks Bundle
-        run: databricks bundle validate --target dev
+        run: |
+          databricks bundle validate --target dev
+
+      # ======================================================
+      # 07. GERAR PLANO DE IMPLANTACAO
+      # ======================================================
 
       - name: Generate deployment plan
         shell: bash
         run: |
           set -euo pipefail
+
           databricks bundle plan \
             --target dev \
-            --output json > "$RUNNER_TEMP/bairroiq-plan.json"
+            --output json \
+            > "$RUNNER_TEMP/bairroiq-plan.json"
+
+      # ======================================================
+      # 08. INSPECIONAR PLANO SEM APROVAR MUDANCAS
+      # ======================================================
 
       - name: Inspect deployment plan without approving changes
         shell: bash
@@ -121,20 +172,42 @@ jobs:
           import os
           from pathlib import Path
 
-          plan_path = Path(os.environ["RUNNER_TEMP"]) / "bairroiq-plan.json"
-          if not plan_path.is_file():
-              raise RuntimeError("Deployment plan not found")
+          # ==========================================
+          # 01. CARREGAR PLANO
+          # ==========================================
 
-          payload = json.loads(plan_path.read_text(encoding="utf-8"))
-          if not isinstance(payload, dict) or not isinstance(payload.get("plan"), dict):
-              raise RuntimeError("Unexpected plan JSON structure")
+          plan_path = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "bairroiq-plan.json"
+          )
+
+          if not plan_path.is_file():
+              raise RuntimeError(
+                  "Deployment plan not found"
+              )
+
+          payload = json.loads(
+              plan_path.read_text(encoding="utf-8")
+          )
+
+          if (
+              not isinstance(payload, dict)
+              or not isinstance(payload.get("plan"), dict)
+          ):
+              raise RuntimeError(
+                  "Unexpected plan JSON structure"
+              )
+
           plan = payload["plan"]
 
-          # A CLI Databricks utiliza resources_jobs.<key> em alguns
-          # planos JSON. Tambem aceitamos resources.jobs.<key>, sem
-          # abrir permissao para outros tipos ou nomes de recursos.
+          # ==========================================
+          # 02. CONTRATO DOS SETE JOBS
+          # ==========================================
+
           known_jobs = {
-              "bairroiq_smoke_job",
+              # Nome REAL do Smoke no Bundle.
+              "barrioiq_smoke_job",
+
               "bairroiq_bronze_ddl_job",
               "bairroiq_silver_ibge_check_job",
               "bairroiq_silver_ssp_check_job",
@@ -142,108 +215,227 @@ jobs:
               "bairroiq_silver_geosampa_check_job",
               "bairroiq_gold_wide_check_job",
           }
-          prefixes = ("resources_jobs.", "resources.jobs.")
+
+          prefixes = (
+              "resources_jobs.",
+              "resources.jobs.",
+          )
+
           if len(known_jobs) != 7:
-              raise RuntimeError("Expected exactly seven authorized job identities")
+              raise RuntimeError(
+                  "Expected exactly seven job identities"
+              )
+
+          # ==========================================
+          # 03. IDENTIFICAR RECURSOS
+          # ==========================================
 
           def identify_job(resource):
               if not isinstance(resource, str):
                   return None
+
               for prefix in prefixes:
                   if resource.startswith(prefix):
                       name = resource[len(prefix):]
+
                       if name in known_jobs:
                           return name
+
               return None
+
+          # ==========================================
+          # 04. VALIDAR PLANO
+          # ==========================================
 
           errors = []
           requires_review = []
           rows = []
           seen_jobs = set()
 
-          # Preview reporta updates em recursos conhecidos.
-          # Isso NAO autoriza essas alteracoes no CD Deploy.
-          # Delete/replace/recursos desconhecidos seguem proibidos.
           for resource, change in sorted(plan.items()):
+
               if not isinstance(change, dict):
-                  errors.append(f"Invalid change object: {resource}")
+                  errors.append(
+                      f"Invalid change object: {resource}"
+                  )
                   continue
 
               action = change.get("action")
               fields = change.get("changes")
+
               if fields is None:
                   fields = {}
 
               if not isinstance(fields, dict):
-                  errors.append(f"Invalid changes object: {resource}")
+                  errors.append(
+                      f"Invalid changes object: {resource}"
+                  )
                   continue
 
               print(f"RESOURCE: {resource}")
               print(f"ACTION: {action}")
+
               for field in sorted(fields):
                   print(f"  FIELD: {field}")
 
-              rows.append((resource, action, len(fields)))
+              rows.append((
+                  resource,
+                  action,
+                  len(fields),
+              ))
 
               job_key = identify_job(resource)
+
               if job_key is None:
-                  errors.append(f"Unknown resource in plan: {resource}")
+                  errors.append(
+                      f"Unknown resource in plan: {resource}"
+                  )
                   continue
 
-              # Impede que dois aliases da mesma identidade sejam
-              # usados no mesmo plano.
               if job_key in seen_jobs:
-                  errors.append(f"Duplicate job identity in plan: {job_key}")
+                  errors.append(
+                      "Duplicate job identity in plan: "
+                      f"{job_key}"
+                  )
                   continue
+
               seen_jobs.add(job_key)
 
-              if action not in {"create", "skip", "update"}:
-                  errors.append(f"Blocked plan operation: {resource} -> {action}")
+              # Preview aceita observar create/update/skip.
+              # Isso NAO autoriza deploy dessas operacoes.
+              # Delete, replace e acoes desconhecidas
+              # permanecem bloqueadas.
+
+              if action not in {
+                  "create",
+                  "skip",
+                  "update",
+              }:
+                  errors.append(
+                      "Blocked plan operation: "
+                      f"{resource} -> {action}"
+                  )
                   continue
 
               if action == "update":
-                  requires_review.append((resource, action, sorted(fields)))
-              elif job_key == "bairroiq_smoke_job" and action == "create":
-                  requires_review.append((resource, action, sorted(fields)))
+                  requires_review.append((
+                      resource,
+                      action,
+                      sorted(fields),
+                  ))
 
-          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+              elif (
+                  job_key == "barrioiq_smoke_job"
+                  and action == "create"
+              ):
+                  requires_review.append((
+                      resource,
+                      action,
+                      sorted(fields),
+                  ))
+
+          # ==========================================
+          # 05. RESUMO NO GITHUB ACTIONS
+          # ==========================================
+
+          summary_path = os.environ.get(
+              "GITHUB_STEP_SUMMARY"
+          )
+
           if summary_path:
-              with open(summary_path, "a", encoding="utf-8") as out:
-                  out.write("## BairroIQ - Databricks CD Preview\n\n")
-                  out.write("Somente leitura. Nenhum deploy foi executado.\n\n")
-                  out.write("| Recurso | Acao | Campos alterados |\n")
-                  out.write("|---|---|---:|\n")
+              with open(
+                  summary_path,
+                  "a",
+                  encoding="utf-8",
+              ) as out:
+
+                  out.write(
+                      "## BairroIQ - Databricks CD Preview\n\n"
+                  )
+
+                  out.write(
+                      "Somente leitura. Nenhum deploy foi executado.\n\n"
+                  )
+
+                  out.write(
+                      "| Recurso | Acao | Campos alterados |\n"
+                  )
+                  out.write(
+                      "|---|---|---:|\n"
+                  )
+
                   for resource, action, count in rows:
-                      out.write(f"| `{resource}` | `{action}` | {count} |\n")
+                      out.write(
+                          f"| `{resource}` | `{action}` | {count} |\n"
+                      )
+
                   if not rows:
-                      out.write("| Nenhuma alteracao | - | 0 |\n")
+                      out.write(
+                          "| Nenhuma alteracao | - | 0 |\n"
+                      )
+
                   out.write("\n")
+
                   if requires_review:
-                      out.write("**ATENCAO: alteracoes exigem revisao antes do CD Deploy.**\n\n")
+                      out.write(
+                          "**ATENCAO: alteracoes exigem revisao "
+                          "antes do CD Deploy.**\n\n"
+                      )
+
                       for resource, action, fields in requires_review:
-                          out.write(f"- `{resource}`: `{action}` ({len(fields)} campos)\n")
+                          out.write(
+                              f"- `{resource}`: `{action}` "
+                              f"({len(fields)} campos)\n"
+                          )
+
                   else:
-                      out.write("Nenhuma atualizacao adicional identificada.\n")
+                      out.write(
+                          "Nenhuma atualizacao adicional identificada.\n"
+                      )
+
                   if errors:
-                      out.write("\n**BLOQUEADO:**\n\n")
+                      out.write(
+                          "\n**BLOQUEADO:**\n\n"
+                      )
+
                       for error in errors:
                           out.write(f"- {error}\n")
 
+          # ==========================================
+          # 06. RESULTADO
+          # ==========================================
+
           print(f"PLAN_RESOURCES: {len(rows)}")
-          print(f"UPDATES_REQUIRING_CD_REVIEW: {len(requires_review)}")
+          print(
+              "UPDATES_REQUIRING_CD_REVIEW: "
+              f"{len(requires_review)}"
+          )
+
           for resource, action, fields in requires_review:
-              print(f"REVIEW_REQUIRED: {resource} -> {action}; fields={fields}")
+              print(
+                  f"REVIEW_REQUIRED: {resource} "
+                  f"-> {action}; fields={fields}"
+              )
 
           if errors:
-              raise RuntimeError("Unsafe plan:\n" + "\n".join(errors))
+              raise RuntimeError(
+                  "Unsafe plan:\n" + "\n".join(errors)
+              )
 
           print("SEVEN_JOB_PREVIEW_VALIDATED")
           print("NO_DEPLOYMENT_EXECUTED")
           print("NO_DATABRICKS_JOB_EXECUTED")
           print("NO_GOLD_UPDATE_EXECUTED")
+
           if requires_review:
-              print("CHANGES_REQUIRE_EXPLICIT_CD_DEPLOY_APPROVAL")
+              print(
+                  "CHANGES_REQUIRE_EXPLICIT_CD_DEPLOY_APPROVAL"
+              )
           PY
+
+      # ======================================================
+      # 09. CONCLUSAO
+      # ======================================================
 
       - name: Preview completed
         run: |
