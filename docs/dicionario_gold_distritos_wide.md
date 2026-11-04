@@ -10,7 +10,7 @@ BairroIQ | Gold Distritos Wide. Snapshot analítico com uma linha por cada um do
 - **Granularidade:** uma linha por distrito oficial
 - **Chave:** `CD_DIST`
 - **Distritos esperados:** 96
-- **Colunas esperadas:** 252
+- **Colunas esperadas:** 254
 - **Temporalidade:** último valor disponível de cada fonte
 - **Histórico analítico:** não disponibilizado na Gold
 - **Localização imobiliária:** proxy OSM homologado
@@ -23,6 +23,17 @@ BairroIQ | Gold Distritos Wide. Snapshot analítico com uma linha por cada um do
 - `workspace.silver.ssp_ocorrencias_distrito`
 - `workspace.silver.imoveis_bairro_mensal`
 - `workspace.silver.imoveis_bairro_distrito_candidatos`
+
+## Referência geográfica
+
+- **Fonte:** IBGE — Malha Distrital 2022.
+- **Arquivo versionado:** `barrioiq_pipeline/distritos_centroides_ibge_2022.json`.
+- **Granularidade:** um centroide por distrito (`CD_DIST`), 96/96.
+- **Cálculo:** geometria reprojetada para `EPSG:31983` e centroide convertido para `EPSG:4326`.
+- **Campos:** `latitude` e `longitude`, tipo `DOUBLE`, oito casas decimais.
+- **Limitação:** ponto representativo geométrico, não endereço, centro populacional ou polígono distrital.
+- **Proveniência:** SHA256 do JSON `a0eea0fa2b80ec5565226f2982baae4699debc0f9baeb609d04cf817004333f8`.
+- **Independência:** a referência geográfica é um JSON versionado, não uma sétima Silver.
 
 ## Ressalvas metodológicas
 
@@ -39,6 +50,7 @@ BairroIQ | Gold Distritos Wide. Snapshot analítico com uma linha por cada um do
 |---|---:|
 | Demografia e domicílios | 10 |
 | Demografia normalizada | 1 |
+| Georreferenciamento distrital | 2 |
 | Identificação territorial | 2 |
 | Indicadores socioeconômicos | 104 |
 | Infraestrutura urbana | 42 |
@@ -304,9 +316,11 @@ BairroIQ | Gold Distritos Wide. Snapshot analítico com uma linha por cada um do
 | 251 | `imv_bairros_mapeados` | `bigint` | Mercado imobiliário | bairros distintos | Número de bairros imobiliários distintos associados ao distrito no último mês disponível. | `workspace.silver.imoveis_bairro_mensal; workspace.silver.imoveis_bairro_distrito_candidatos` | Último mês imobiliário disponível. COUNT DISTINCT de bairro_normalizado após associação territorial aprovada. | Não representa todos os bairros existentes ou todos os bairros da fonte. |
 | 252 | `imv_metodo_localizacao` | `string` | Mercado imobiliário | texto | Método utilizado para associar os bairros imobiliários ao distrito administrativo. | `workspace.silver.imoveis_bairro_mensal; workspace.silver.imoveis_bairro_distrito_candidatos` | Último mês imobiliário disponível. PROXY_OSM_HOMOLOGADO quando existe associação territorial aprovada. | Associação aproximada baseada em OSM; não comprova que todos os imóveis do bairro estejam dentro do distrito. NULL significa ausência de associação homologada. |
 
+| 253 | `latitude` | `double` | Georreferenciamento distrital | graus decimais | Latitude WGS84 do centroide geográfico do distrito oficial de São Paulo. | `IBGE 2022: distritos_centroides_ibge_2022.json` | Centroide da malha distrital IBGE 2022 calculado em EPSG:31983, convertido para EPSG:4326 e arredondado a oito casas decimais; JOIN por CD_DIST a partir do JSON versionado. | Centroide geométrico, não endereço ou centro populacional; não representa geometria completa do distrito. |
+| 254 | `longitude` | `double` | Georreferenciamento distrital | graus decimais | Longitude WGS84 do centroide geográfico do distrito oficial de São Paulo. | `IBGE 2022: distritos_centroides_ibge_2022.json` | Centroide da malha distrital IBGE 2022 calculado em EPSG:31983, convertido para EPSG:4326 e arredondado a oito casas decimais; JOIN por CD_DIST a partir do JSON versionado. | Centroide geométrico, não endereço ou centro populacional; não representa geometria completa do distrito. |
+
 ## Governança
 
 O dicionário é baseado no schema da Gold e nos contratos do runner versionado.
 
 Os comentários de tabela e coluna no Unity Catalog devem ser publicados por um processo controlado e reconciliados com este documento.
-
