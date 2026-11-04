@@ -1,17 +1,10 @@
-
 # ============================================================
-# BAIRROIQ | GOLD WIDE | CONTINUOUS INTEGRATION
+# BAIRROIQ | GOLD DISTRITOS WIDE V4 | CONTINUOUS INTEGRATION
 # ============================================================
 #
-# Objetivo:
-#   Validar automaticamente o runner Gold Distritos Wide.
-#
-# Seguranca:
-#   - Nenhuma conexao com Databricks
-#   - Nenhuma publicacao de tabelas
-#   - Nenhuma modificacao de dados
-#   - Nenhum segredo ou credencial necessario
-#   - Somente testes locais
+# CI local, sem credenciais e sem conexao com Databricks.
+# Valida os contratos v3/v4, a referencia oficial dos
+# 96 centroides e o dicionario da Gold com 254 colunas.
 #
 # ============================================================
 
@@ -24,7 +17,16 @@ on:
       - "feature/**"
     paths:
       - "barrioiq_pipeline/gold_distritos_wide_runner.py"
+      - "barrioiq_pipeline/gold_distritos_wide_v4_runner.py"
+      - "barrioiq_pipeline/gold_distritos_wide_v4_strict_check.py"
+      - "barrioiq_pipeline/gold_distritos_geo.py"
+      - "barrioiq_pipeline/distritos_centroides_ibge_2022.json"
+      - "barrioiq_pipeline/resources/bairroiq-gold-wide-check.job.yml"
       - "tests/test_gold_distritos_wide_runner.py"
+      - "tests/test_gold_distritos_wide_v4_runner.py"
+      - "tests/test_gold_distritos_geo.py"
+      - "docs/dicionario_gold_distritos_wide.json"
+      - "docs/dicionario_gold_distritos_wide.md"
       - ".github/workflows/gold-wide-ci.yml"
 
   pull_request:
@@ -32,7 +34,16 @@ on:
       - main
     paths:
       - "barrioiq_pipeline/gold_distritos_wide_runner.py"
+      - "barrioiq_pipeline/gold_distritos_wide_v4_runner.py"
+      - "barrioiq_pipeline/gold_distritos_wide_v4_strict_check.py"
+      - "barrioiq_pipeline/gold_distritos_geo.py"
+      - "barrioiq_pipeline/distritos_centroides_ibge_2022.json"
+      - "barrioiq_pipeline/resources/bairroiq-gold-wide-check.job.yml"
       - "tests/test_gold_distritos_wide_runner.py"
+      - "tests/test_gold_distritos_wide_v4_runner.py"
+      - "tests/test_gold_distritos_geo.py"
+      - "docs/dicionario_gold_distritos_wide.json"
+      - "docs/dicionario_gold_distritos_wide.md"
       - ".github/workflows/gold-wide-ci.yml"
 
   workflow_dispatch:
@@ -41,131 +52,164 @@ permissions:
   contents: read
 
 jobs:
-
   gold-wide-tests:
-
-    name: Gold Wide - Quality and Safety Tests
-
+    name: Gold Wide v4 - Quality and Safety Tests
     runs-on: ubuntu-latest
-
     timeout-minutes: 10
 
     steps:
-
-      # ------------------------------------------------------
-      # 1. CHECKOUT
-      # ------------------------------------------------------
-
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      # ------------------------------------------------------
-      # 2. PYTHON
-      # ------------------------------------------------------
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      # ------------------------------------------------------
-      # 3. VALIDAR ESTRUTURA
-      # ------------------------------------------------------
-
-      - name: Verify required files
+      - name: Verify required files and syntax
         shell: bash
         run: |
           set -euo pipefail
-
-          test -f \
-            barrioiq_pipeline/gold_distritos_wide_runner.py
-
-          test -f \
-            tests/test_gold_distritos_wide_runner.py
-
-          echo "GOLD_REQUIRED_FILES_OK"
-
-      # ------------------------------------------------------
-      # 4. VALIDAR SINTAXE
-      # ------------------------------------------------------
-
-      - name: Verify Python syntax
-        shell: bash
-        run: |
-          set -euo pipefail
-
+          test -f barrioiq_pipeline/gold_distritos_wide_runner.py
+          test -f barrioiq_pipeline/gold_distritos_wide_v4_runner.py
+          test -f barrioiq_pipeline/gold_distritos_wide_v4_strict_check.py
+          test -f barrioiq_pipeline/gold_distritos_geo.py
+          test -f barrioiq_pipeline/distritos_centroides_ibge_2022.json
+          test -f barrioiq_pipeline/resources/bairroiq-gold-wide-check.job.yml
+          test -f docs/dicionario_gold_distritos_wide.json
+          test -f docs/dicionario_gold_distritos_wide.md
+          test -f tests/test_gold_distritos_wide_runner.py
+          test -f tests/test_gold_distritos_wide_v4_runner.py
+          test -f tests/test_gold_distritos_geo.py
           python -m py_compile \
             barrioiq_pipeline/gold_distritos_wide_runner.py \
-            tests/test_gold_distritos_wide_runner.py
+            barrioiq_pipeline/gold_distritos_wide_v4_runner.py \
+            barrioiq_pipeline/gold_distritos_wide_v4_strict_check.py \
+            barrioiq_pipeline/gold_distritos_geo.py \
+            tests/test_gold_distritos_wide_runner.py \
+            tests/test_gold_distritos_wide_v4_runner.py \
+            tests/test_gold_distritos_geo.py
+          echo "GOLD_REQUIRED_FILES_AND_SYNTAX_OK"
 
-          echo "GOLD_PYTHON_SYNTAX_OK"
-
-      # ------------------------------------------------------
-      # 5. EXECUTAR TESTES UNITARIOS
-      # ------------------------------------------------------
-
-      - name: Run Gold Wide unit tests
+      - name: Run Gold v3, v4, and geography unit tests
         shell: bash
         run: |
           set -euo pipefail
+          python -m unittest discover -s tests \
+            -p 'test_gold_distritos_wide_runner.py' -v
+          python -m unittest discover -s tests \
+            -p 'test_gold_distritos_wide_v4_runner.py' -v
+          python -m unittest discover -s tests \
+            -p 'test_gold_distritos_geo.py' -v
+          echo "GOLD_V4_UNIT_TESTS_SUCCESS"
 
-          python -m unittest discover \
-            -s tests \
-            -p "test_gold_distritos_wide_runner.py" \
-            -v
-
-      # ------------------------------------------------------
-      # 6. CONFIRMAR REGRAS DE SEGURANCA
-      # ------------------------------------------------------
-
-      - name: Verify publication protection
+      - name: Verify Gold v4 published contract and dictionary
         shell: bash
         run: |
           set -euo pipefail
-
           python - <<'PY'
+          import json
+          from pathlib import Path
+
           from barrioiq_pipeline import (
-              gold_distritos_wide_runner as runner
+              gold_distritos_wide_runner as v3,
+              gold_distritos_wide_v4_runner as v4,
+              gold_distritos_geo as geo,
+              gold_distritos_wide_v4_strict_check as strict,
           )
 
-          assert runner.TARGET == (
-              "workspace.gold.distritos_wide"
+          def require(condition, message):
+              if not condition:
+                  raise RuntimeError(message)
+
+          target = "workspace.gold.distritos_wide"
+
+          require(v3.TARGET == v4.TARGET == strict.TARGET == target,
+                  "Destino Gold divergente")
+          require(v3.EXPECTED_DISTRICTS == v4.EXPECTED_DISTRICTS
+                  == geo.EXPECTED_DISTRICTS == strict.EXPECTED_DISTRICTS
+                  == 96, "Contrato de 96 distritos divergente")
+          require(v4.LEGACY_COLUMNS == 252 and v4.NEW_COLUMNS == 254,
+                  "Contrato 252 -> 254 divergente")
+          require(v4.GEO_COLUMNS == geo.GEO_COLUMNS
+                  == ("latitude", "longitude"),
+                  "Campos geoespaciais divergentes")
+          require(strict.EXPECTED_COLUMNS == 254,
+                  "Check estrito nao exige 254 campos")
+          require(strict.EXPECTED_LEGACY_COLUMNS == 252,
+                  "Check estrito nao preserva contrato v3")
+          require(v3.METODO_IMOVEIS == "PROXY_OSM_HOMOLOGADO"
+                  and len(v3.IMOVEIS_FEATURES) == 6,
+                  "Contrato imobiliario divergente")
+          require("imv_mes_referencia" not in v3.IMOVEIS_FEATURES
+                  and "imv_atualizado_em" not in v3.IMOVEIS_FEATURES,
+                  "Campos temporais nao permitidos na Gold")
+
+          reference = Path(
+              "barrioiq_pipeline/distritos_centroides_ibge_2022.json"
           )
+          rows, sha = geo.load_centroids(reference)
+          require(len(rows) == 96 and len({r["CD_DIST"] for r in rows}) == 96,
+                  "Referencias distritais nao validas")
+          require(len(sha) == 64, "Hash do JSON invalido")
 
-          assert runner.EXPECTED_DISTRICTS == 96
-
-          assert len(runner.IMOVEIS_FEATURES) == 6
-
-          assert "imv_mes_referencia" not in (
-              runner.IMOVEIS_FEATURES
+          dictionary = json.loads(
+              Path("docs/dicionario_gold_distritos_wide.json")
+              .read_text(encoding="utf-8")
           )
+          columns = dictionary.get("colunas")
+          require(dictionary.get("tabela") == target, "Destino incorreto no dicionario")
+          require(dictionary.get("distritos_esperados") == 96,
+                  "Cobertura distrital incorreta no dicionario")
+          require(dictionary.get("colunas_esperadas") == 254,
+                  "Total de colunas incorreto no dicionario")
+          require(isinstance(columns, list) and len(columns) == 254,
+                  "O dicionario nao tem 254 registros")
+          require([row.get("ordem") for row in columns] == list(range(1, 255)),
+                  "Ordem das colunas invalida")
+          require(len({row.get("coluna") for row in columns}) == 254,
+                  "Colunas repetidas no dicionario")
+          require([row.get("coluna") for row in columns[-2:]]
+                  == ["latitude", "longitude"],
+                  "Coordenadas fora da ordem no dicionario")
+          for item in columns[-2:]:
+              name = item["coluna"]
+              require(item["tipo"] == "double", f"{name}: tipo divergente")
+              require(item.get("comentario_atual") == v4.COLUMN_COMMENTS[name],
+                      f"{name}: comentario diverge do runner")
+              require("EPSG:4326" in item.get("regra_calculo", ""),
+                      f"{name}: sem CRS no dicionario")
+          require(all(row.get("comentario_atual") for row in columns),
+                  "Dicionario contem comentarios vazios")
 
-          assert "imv_atualizado_em" not in (
-              runner.IMOVEIS_FEATURES
+          markdown = Path(
+              "docs/dicionario_gold_distritos_wide.md"
+          ).read_text(encoding="utf-8")
+          require("**Colunas esperadas:** 254" in markdown,
+                  "Markdown nao declara 254 colunas")
+          require("| 253 | `latitude`" in markdown
+                  and "| 254 | `longitude`" in markdown,
+                  "Markdown sem as duas coordenadas")
+
+          job_yaml = Path(
+              "barrioiq_pipeline/resources/bairroiq-gold-wide-check.job.yml"
+          ).read_text(encoding="utf-8")
+          require(
+              "python_file: ../gold_distritos_wide_v4_strict_check.py"
+              in job_yaml,
+              "Job Gold nao executa o check estrito v4",
           )
-
-          assert runner.METODO_IMOVEIS == (
-              "PROXY_OSM_HOMOLOGADO"
-          )
-
-          print("GOLD_PUBLICATION_CONTRACT_OK")
+          require('              - "--check"' in job_yaml,
+                  "Job Gold sem --check")
+          print("GOLD_V4_DICTIONARY_AND_CONTRACT_SUCCESS")
           PY
 
-      # ------------------------------------------------------
-      # 7. CONFIRMACAO
-      # ------------------------------------------------------
-
-      - name: Confirm Gold Wide CI
-        if: success()
+      - name: Confirm safe CI execution
         shell: bash
         run: |
-          echo "======================================"
-          echo "BAIRROIQ | GOLD WIDE CI"
-          echo "======================================"
-          echo "Python syntax: OK"
-          echo "Unit tests: OK"
-          echo "Publication contract: OK"
-          echo "Databricks execution: NONE"
-          echo "Tables modified: NONE"
-          echo "======================================"
-          echo "GOLD_WIDE_CI_SUCCESS"
+          set -euo pipefail
+          echo "BAIRROIQ | GOLD WIDE V4 CI"
+          echo "GitHub Actions: local checks only"
+          echo "Databricks connection: NONE"
+          echo "Published tables changed: NONE"
+          echo "GOLD_WIDE_V4_CI_SUCCESS"
