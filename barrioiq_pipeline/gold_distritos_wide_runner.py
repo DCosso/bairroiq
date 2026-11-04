@@ -1,38 +1,44 @@
 
 """
-BairroIQ | Gold Distritos Wide v2
+BairroIQ | Gold Distritos Wide v3
 
-Consolida:
-- IBGE
-- GeoSampa
-- ObservaSampa
-- SSP-SP
-- Imoveis com associacao territorial homologada
+Fontes:
+    IBGE, GeoSampa, ObservaSampa, SSP e Imoveis.
+
+Destino:
+    workspace.gold.distritos_wide
 
 Granularidade:
-    Uma linha por distrito oficial de Sao Paulo.
+    Exatamente uma linha por distrito oficial de Sao Paulo.
 
-Politica temporal:
-    Sempre os dados mais recentes disponiveis.
-    Nenhuma coluna de data na Gold.
+Politica:
+    - Estado mais recente disponivel.
+    - Nenhuma coluna de data na Gold.
+    - Ausencias imobiliarias permanecem NULL.
+    - Somente associacoes territoriais aprovadas.
+    - Nenhuma media de medianas imobiliarias.
+    - Nenhum historico analitico na Gold.
 
-Imoveis:
-    Usa o mes mais recente da Silver imobiliaria.
-    Usa a ultima aprovacao territorial de cada bairro.
-    Preserva venda e aluguel separadamente.
-    Nao utiliza associacoes territoriais nao aprovadas.
-    Nao calcula medias de medianas de preco.
-
-Modos:
+Execucao:
     --check
-        Valida sem alterar tabelas.
+        Validacao somente leitura.
 
     --apply --confirm-publish
-        Somente criacao inicial.
-        Nunca substitui uma Gold existente divergente.
+        Criacao inicial, se o destino nao existir.
 
-A atualizacao de uma Gold existente sera implementada
-em etapa posterior, apos testes.
+    --update --confirm-publish
+        Atualizacao controlada do destino existente.
+
+O modo --update:
+    - Requer Delta Lake.
+    - Exige exatamente 96 distritos.
+    - Exige schema identico.
+    - Exige codigos territoriais identicos.
+    - Confere versoes das fontes.
+    - Executa MERGE por CD_DIST.
+    - Compara integralmente o resultado publicado.
+
+Nenhuma operacao de publicacao e automatica.
 """
 
 import argparse
@@ -50,21 +56,15 @@ from uuid import uuid4
 # ============================================================
 
 IBGE = "workspace.silver.ibge_agregados_basicos_v2"
-
 GEO = "workspace.silver.geosampa_equipamentos_distrito"
-
 OBS = "workspace.silver.observasampa_indicadores_distrito"
-
 SSP = "workspace.silver.ssp_ocorrencias_distrito"
-
 IMOVEIS = "workspace.silver.imoveis_bairro_mensal"
-
 DEPARA = "workspace.silver.imoveis_bairro_distrito_candidatos"
 
 TARGET = "workspace.gold.distritos_wide"
 
 EXPECTED_DISTRICTS = 96
-
 METODO_IMOVEIS = "PROXY_OSM_HOMOLOGADO"
 
 IMOVEIS_FEATURES = (
@@ -98,7 +98,7 @@ SSP_RATE_RUBRICAS = (
 
 
 # ============================================================
-# 2. CONTROLES GERAIS
+# 2. FUNCOES DE CONTROLE
 # ============================================================
 
 class ContractError(ValueError):
@@ -123,17 +123,15 @@ def emit(event, **data):
 
 
 def slug(value, prefix):
-    """Nome deterministico de coluna."""
-
     require(
-        isinstance(value, str) and value.strip(),
+        isinstance(value, str) and bool(value.strip()),
         f"Nome de feature invalido: {value!r}",
     )
 
     text = "".join(
-        c
-        for c in unicodedata.normalize("NFKD", value)
-        if not unicodedata.combining(c)
+        char
+        for char in unicodedata.normalize("NFKD", value)
+        if not unicodedata.combining(char)
     )
 
     text = re.sub(
@@ -159,14 +157,12 @@ def slug(value, prefix):
 
 
 def month_window(latest):
-    """Janela SSP de 12 meses completos."""
-
     require(
         isinstance(latest, date),
         "SSP sem data valida",
     )
 
-    end_day = calendar.monthrange(
+    last_day = calendar.monthrange(
         latest.year,
         latest.month,
     )[1]
@@ -174,7 +170,7 @@ def month_window(latest):
     last = date(
         latest.year,
         latest.month,
-        end_day,
+        last_day,
     )
 
     if latest < last:
@@ -187,7 +183,7 @@ def month_window(latest):
         "Periodo SSP inesperado",
     )
 
-    index = (
+    month_index = (
         last.year * 12
         + last.month
         - 1
@@ -195,8 +191,8 @@ def month_window(latest):
     )
 
     first = date(
-        index // 12,
-        index % 12 + 1,
+        month_index // 12,
+        month_index % 12 + 1,
         1,
     )
 
@@ -204,50 +200,43 @@ def month_window(latest):
 
 
 def delta_version(spark, table):
-
     row = spark.sql(
         f"DESCRIBE HISTORY {table} LIMIT 1"
     ).first()
 
     require(
-        row is not None
-        and row["version"] is not None,
-        f"Historico Delta ausente: {table}",
+        row is not None and row["version"] is not None,
+        f"Historico Delta indisponivel: {table}",
     )
 
     return int(row["version"])
 
 
 def load_snapshot(spark, table, version):
-
     return spark.sql(
         f"SELECT * FROM {table} "
         f"VERSION AS OF {int(version)}"
     )
 
 
-def require_columns(df, columns, label):
-
-    missing = set(columns) - set(df.columns)
+def require_columns(frame, columns, label):
+    missing = set(columns) - set(frame.columns)
 
     require(
         not missing,
-        f"{label}: colunas ausentes "
-        f"{sorted(missing)}",
+        f"{label}: colunas ausentes {sorted(missing)}",
     )
 
 
-def check_districts(df, label):
-
+def check_districts(frame, label):
     from pyspark.sql import functions as F
 
-    stats = df.agg(
+    stats = frame.agg(
         F.count("*").alias("linhas"),
         F.countDistinct("CD_DIST").alias("distritos"),
         F.sum(
             F.when(
-                F.col("CD_DIST").isNull(),
-                1,
+                F.col("CD_DIST").isNull(), 1
             ).otherwise(0)
         ).alias("nulos"),
     ).first()
@@ -256,16 +245,13 @@ def check_districts(df, label):
         stats["linhas"] == EXPECTED_DISTRICTS
         and stats["distritos"] == EXPECTED_DISTRICTS
         and stats["nulos"] == 0,
-        f"{label}: integridade distrital invalida. "
-        f"{stats.asDict()}",
+        f"{label}: distritos invalidos: {stats.asDict()}",
     )
 
 
-def assert_same_codes(df, reference, label):
-
+def assert_same_codes(frame, reference, label):
     extra = (
-        df.select("CD_DIST")
-        .distinct()
+        frame.select("CD_DIST").distinct()
         .join(
             reference.select("CD_DIST"),
             "CD_DIST",
@@ -281,15 +267,51 @@ def assert_same_codes(df, reference, label):
     )
 
 
-def total(df, column):
-
+def total(frame, field):
     from pyspark.sql import functions as F
 
-    value = df.agg(
-        F.sum(column).alias("total")
+    value = frame.agg(
+        F.sum(field).alias("total")
     ).first()["total"]
 
     return value if value is not None else 0
+
+
+def source_versions_unchanged(spark, versions):
+    return all(
+        delta_version(spark, table) == version
+        for table, version in versions.items()
+    )
+
+
+def same_schema(left, right):
+    def signature(frame):
+        return [
+            (
+                field.name,
+                field.dataType.simpleString(),
+            )
+            for field in frame.schema
+        ]
+
+    return signature(left) == signature(right)
+
+
+def assert_exact_codes(proposed, current):
+    check_districts(proposed, "Gold proposta")
+    check_districts(current, "Gold existente")
+
+    assert_same_codes(
+        proposed,
+        current,
+        "Proposta versus existente",
+    )
+
+    assert_same_codes(
+        current,
+        proposed,
+        "Existente versus proposta",
+    )
 
 
 # ============================================================
@@ -297,24 +319,10 @@ def total(df, column):
 # ============================================================
 
 def build_imoveis(spark, versions, base):
-    """
-    Retorna:
-        DataFrame distrital com seis indicadores.
-        Dicionario de diagnostico.
-
-    Nao grava nenhuma tabela.
-    """
-
     from pyspark.sql import functions as F
 
-    # --------------------------------------------------------
-    # 3.1. SILVER IMOBILIARIA
-    # --------------------------------------------------------
-
     imoveis = load_snapshot(
-        spark,
-        IMOVEIS,
-        versions[IMOVEIS],
+        spark, IMOVEIS, versions[IMOVEIS]
     )
 
     require_columns(
@@ -356,8 +364,7 @@ def build_imoveis(spark, versions, base):
             "_tipo",
             F.lower(
                 F.trim(
-                    F.col("transacao")
-                    .cast("string")
+                    F.col("transacao").cast("string")
                 )
             ),
         )
@@ -365,16 +372,13 @@ def build_imoveis(spark, versions, base):
 
     require(
         fonte.count() > 0,
-        "Imoveis: ultimo mes sem registros",
+        "Imoveis: mes mais recente vazio",
     )
 
     invalidos = fonte.filter(
         F.col("_bairro").isNull()
         | (F.col("_bairro") == "")
-        | ~F.col("_tipo").isin(
-            "venda",
-            "aluguel",
-        )
+        | ~F.col("_tipo").isin("venda", "aluguel")
         | F.col("anuncios_ativos_media_dia").isNull()
         | (F.col("anuncios_ativos_media_dia") < 0)
         | F.col("novos_anuncios").isNull()
@@ -387,24 +391,18 @@ def build_imoveis(spark, versions, base):
     )
 
     tipos = {
-        r["_tipo"]
-        for r in fonte.select(
-            "_tipo"
-        ).distinct().collect()
+        row["_tipo"]
+        for row in fonte.select("_tipo").distinct().collect()
     }
 
     require(
         tipos == {"venda", "aluguel"},
-        f"Imoveis: transacoes inesperadas {tipos}",
+        f"Imoveis: modalidades inesperadas {tipos}",
     )
 
     duplicados = (
         fonte
-        .groupBy(
-            "mes",
-            "_bairro",
-            "_tipo",
-        )
+        .groupBy("mes", "_bairro", "_tipo")
         .count()
         .filter(F.col("count") > 1)
         .limit(1)
@@ -413,17 +411,13 @@ def build_imoveis(spark, versions, base):
 
     require(
         duplicados == 0,
-        "Imoveis: duplicidade mes+bairro+transacao",
+        "Imoveis: duplicidade na chave mensal",
     )
 
-    # --------------------------------------------------------
-    # 3.2. DE/PARA TERRITORIAL
-    # --------------------------------------------------------
+    # De/para aprovado, usando a aprovacao mais recente.
 
     depara = load_snapshot(
-        spark,
-        DEPARA,
-        versions[DEPARA],
+        spark, DEPARA, versions[DEPARA]
     )
 
     require_columns(
@@ -458,9 +452,8 @@ def build_imoveis(spark, versions, base):
             .cast("long")
             .alias("CD_DIST"),
 
-            F.col(
-                "justificativa_aprovacao"
-            ).alias("_justificativa"),
+            F.col("justificativa_aprovacao")
+            .alias("_justificativa"),
         )
     )
 
@@ -475,9 +468,7 @@ def build_imoveis(spark, versions, base):
         | F.col("_mes_aprovacao").isNull()
         | F.col("CD_DIST").isNull()
         | F.col("_justificativa").isNull()
-        | (
-            F.trim("_justificativa") == ""
-        )
+        | (F.trim("_justificativa") == "")
     ).count()
 
     require(
@@ -485,60 +476,36 @@ def build_imoveis(spark, versions, base):
         "De/para: aprovacoes incompletas",
     )
 
-    # Ultima aprovacao disponivel por bairro.
-    # Sem dependencia do mes dos imoveis.
-
     ultimas = (
         aprovados
         .groupBy("_bairro")
         .agg(
-            F.max(
-                "_mes_aprovacao"
-            ).alias("_mes_aprovacao")
+            F.max("_mes_aprovacao")
+            .alias("_mes_aprovacao")
         )
     )
 
-    mapa = (
-        aprovados
-        .join(
-            ultimas,
-            [
-                "_bairro",
-                "_mes_aprovacao",
-            ],
-            "inner",
-        )
-    )
-
-    duplicados_mapa = (
-        mapa
-        .groupBy("_bairro")
-        .count()
-        .filter(F.col("count") > 1)
-        .limit(1)
-        .count()
+    mapa = aprovados.join(
+        ultimas,
+        ["_bairro", "_mes_aprovacao"],
+        "inner",
     )
 
     require(
-        duplicados_mapa == 0,
-        "De/para: aprovacoes recentes duplicadas",
+        mapa.groupBy("_bairro")
+        .count()
+        .filter(F.col("count") > 1)
+        .limit(1)
+        .count() == 0,
+        "De/para: aprovacao recente duplicada",
     )
 
     assert_same_codes(
-        mapa,
-        base,
-        "De/para",
+        mapa, base, "De/para"
     )
 
-    # --------------------------------------------------------
-    # 3.3. ASSOCIACAO DOS IMOVEIS
-    # --------------------------------------------------------
-
     integrada = fonte.join(
-        mapa.select(
-            "_bairro",
-            "CD_DIST",
-        ),
+        mapa.select("_bairro", "CD_DIST"),
         "_bairro",
         "left",
     )
@@ -554,12 +521,8 @@ def build_imoveis(spark, versions, base):
 
     require(
         mapeados.count() > 0,
-        "Imoveis: nenhum bairro homologado encontrado",
+        "Imoveis: nenhuma associacao homologada",
     )
-
-    # --------------------------------------------------------
-    # 3.4. AGREGACAO DISTRITAL
-    # --------------------------------------------------------
 
     agregado = (
         mapeados
@@ -601,9 +564,8 @@ def build_imoveis(spark, versions, base):
                 "imv_aluguel_novos"
             ),
 
-            F.countDistinct(
-                "_bairro"
-            ).cast("long").alias(
+            F.countDistinct("_bairro")
+            .cast("long").alias(
                 "imv_bairros_mapeados"
             ),
         )
@@ -613,49 +575,27 @@ def build_imoveis(spark, versions, base):
         )
     )
 
-    # --------------------------------------------------------
-    # 3.5. RECONCILIACAO
-    # --------------------------------------------------------
-
-    estoque_origem = total(
+    estoque_mapeado = total(
         mapeados,
         "anuncios_ativos_media_dia",
     )
 
-    estoque_agregado = (
-        total(
-            agregado,
-            "imv_venda_estoque",
-        )
-        + total(
-            agregado,
-            "imv_aluguel_estoque",
-        )
-    )
-
     require(
-        estoque_origem == estoque_agregado,
+        total(agregado, "imv_venda_estoque")
+        + total(agregado, "imv_aluguel_estoque")
+        == estoque_mapeado,
         "Imoveis: estoque nao reconciliado",
     )
 
-    novos_origem = total(
+    novos_mapeados = total(
         mapeados,
         "novos_anuncios",
     )
 
-    novos_agregados = (
-        total(
-            agregado,
-            "imv_venda_novos",
-        )
-        + total(
-            agregado,
-            "imv_aluguel_novos",
-        )
-    )
-
     require(
-        novos_origem == novos_agregados,
+        total(agregado, "imv_venda_novos")
+        + total(agregado, "imv_aluguel_novos")
+        == novos_mapeados,
         "Imoveis: novos anuncios nao reconciliados",
     )
 
@@ -665,7 +605,7 @@ def build_imoveis(spark, versions, base):
     )
 
     cobertura = (
-        100.0 * estoque_origem / estoque_total
+        100.0 * estoque_mapeado / estoque_total
         if estoque_total > 0
         else 0.0
     )
@@ -681,12 +621,9 @@ def build_imoveis(spark, versions, base):
         ),
         "distritos_com_imoveis": agregado.count(),
         "estoque_total": estoque_total,
-        "estoque_mapeado": estoque_origem,
-        "cobertura_percentual": round(
-            cobertura,
-            2,
-        ),
-        "novos_anuncios_mapeados": novos_origem,
+        "estoque_mapeado": estoque_mapeado,
+        "cobertura_percentual": round(cobertura, 2),
+        "novos_anuncios_mapeados": novos_mapeados,
         "metodo_localizacao": METODO_IMOVEIS,
     }
 
@@ -694,11 +631,10 @@ def build_imoveis(spark, versions, base):
 
 
 # ============================================================
-# 4. CONSTRUCAO DA GOLD
+# 4. CONSTRUIR SNAPSHOT GOLD
 # ============================================================
 
 def build(spark, versions):
-
     from pyspark.sql import functions as F
 
     # --------------------------------------------------------
@@ -706,17 +642,13 @@ def build(spark, versions):
     # --------------------------------------------------------
 
     ibge = load_snapshot(
-        spark,
-        IBGE,
-        versions[IBGE],
+        spark, IBGE, versions[IBGE]
     )
 
     require_columns(
         ibge,
         [
-            "CD_DIST",
-            "NM_DIST",
-            "CD_MUN",
+            "CD_DIST", "NM_DIST", "CD_MUN",
             *IBGE_MEASURES,
         ],
         "IBGE",
@@ -728,23 +660,15 @@ def build(spark, versions):
 
     base = ibge.select(
         F.col("CD_DIST")
-        .cast("long")
-        .alias("CD_DIST"),
-
+        .cast("long").alias("CD_DIST"),
         F.col("NM_DIST"),
-
         *[
-            F.col(c)
-            .cast("double")
-            .alias(f"ibge_{c}")
+            F.col(c).cast("double").alias(f"ibge_{c}")
             for c in IBGE_MEASURES
         ],
     )
 
-    check_districts(
-        base,
-        "IBGE",
-    )
+    check_districts(base, "IBGE")
 
     require(
         base.filter(
@@ -758,15 +682,11 @@ def build(spark, versions):
     # --------------------------------------------------------
 
     geo = load_snapshot(
-        spark,
-        GEO,
-        versions[GEO],
+        spark, GEO, versions[GEO]
     )
 
     require_columns(
-        geo,
-        ["CD_DIST"],
-        "GeoSampa",
+        geo, ["CD_DIST"], "GeoSampa"
     )
 
     geo_features = sorted(
@@ -777,52 +697,34 @@ def build(spark, versions):
 
     require(
         len(geo_features) == 42,
-        "GeoSampa: quantidade inesperada "
-        "de indicadores",
+        "GeoSampa: quantidade inesperada de indicadores",
     )
 
     geo = geo.select(
         F.col("CD_DIST")
-        .cast("long")
-        .alias("CD_DIST"),
-
+        .cast("long").alias("CD_DIST"),
         *[
-            F.col(c)
-            .cast("double")
-            .alias(f"geo_{c}")
+            F.col(c).cast("double").alias(f"geo_{c}")
             for c in geo_features
         ],
     )
 
-    check_districts(
-        geo,
-        "GeoSampa",
-    )
-
-    assert_same_codes(
-        geo,
-        base,
-        "GeoSampa",
-    )
+    check_districts(geo, "GeoSampa")
+    assert_same_codes(geo, base, "GeoSampa")
 
     # --------------------------------------------------------
     # 4.3. OBSERVASAMPA
     # --------------------------------------------------------
 
     obs = load_snapshot(
-        spark,
-        OBS,
-        versions[OBS],
+        spark, OBS, versions[OBS]
     )
 
     require_columns(
         obs,
         [
-            "CD_DIST",
-            "indicador",
-            "ano",
-            "valor_numerico",
-            "status_valor",
+            "CD_DIST", "indicador", "ano",
+            "valor_numerico", "status_valor",
         ],
         "ObservaSampa",
     )
@@ -842,26 +744,15 @@ def build(spark, versions):
     )
 
     assert_same_codes(
-        obs,
-        base,
-        "ObservaSampa",
-    )
-
-    duplicados_obs = (
-        obs
-        .groupBy(
-            "CD_DIST",
-            "indicador",
-            "ano",
-        )
-        .count()
-        .filter(F.col("count") > 1)
-        .limit(1)
-        .count()
+        obs, base, "ObservaSampa"
     )
 
     require(
-        duplicados_obs == 0,
+        obs.groupBy(
+            "CD_DIST", "indicador", "ano"
+        ).count()
+        .filter(F.col("count") > 1)
+        .limit(1).count() == 0,
         "ObservaSampa: chave duplicada",
     )
 
@@ -870,36 +761,21 @@ def build(spark, versions):
         & F.col("valor_numerico").isNotNull()
     )
 
-    years = (
-        valid
-        .groupBy("indicador")
-        .agg(
-            F.max("ano").alias("ano_ref")
-        )
+    years = valid.groupBy("indicador").agg(
+        F.max("ano").alias("ano_ref")
     )
 
     recent = (
-        valid
-        .join(
-            years,
-            "indicador",
-            "inner",
-        )
-        .filter(
-            F.col("ano") == F.col("ano_ref")
-        )
+        valid.join(years, "indicador", "inner")
+        .filter(F.col("ano") == F.col("ano_ref"))
     )
 
     obs_stats = (
         recent
-        .groupBy(
-            "indicador",
-            "ano_ref",
-        )
+        .groupBy("indicador", "ano_ref")
         .agg(
-            F.countDistinct(
-                "CD_DIST"
-            ).alias("coverage")
+            F.countDistinct("CD_DIST")
+            .alias("coverage")
         )
         .orderBy("indicador")
         .collect()
@@ -907,12 +783,11 @@ def build(spark, versions):
 
     require(
         len(obs_stats) >= 1,
-        "ObservaSampa: sem indicadores validos",
+        "ObservaSampa sem indicadores validos",
     )
 
     indicators = [
-        r["indicador"]
-        for r in obs_stats
+        row["indicador"] for row in obs_stats
     ]
 
     obs_names = {
@@ -921,8 +796,7 @@ def build(spark, versions):
     }
 
     require(
-        len(set(obs_names.values()))
-        == len(obs_names),
+        len(set(obs_names.values())) == len(obs_names),
         "ObservaSampa: colunas duplicadas",
     )
 
@@ -933,19 +807,13 @@ def build(spark, versions):
             F.col("valor_numerico").cast("double"),
         )
         .groupBy("CD_DIST")
-        .pivot(
-            "indicador",
-            indicators,
-        )
-        .agg(
-            F.max("valor_numerico")
-        )
+        .pivot("indicador", indicators)
+        .agg(F.max("valor_numerico"))
     )
 
     for name, field in obs_names.items():
         obs_pivot = obs_pivot.withColumnRenamed(
-            name,
-            field,
+            name, field
         )
 
     # --------------------------------------------------------
@@ -953,18 +821,12 @@ def build(spark, versions):
     # --------------------------------------------------------
 
     ssp = load_snapshot(
-        spark,
-        SSP,
-        versions[SSP],
+        spark, SSP, versions[SSP]
     )
 
     require_columns(
         ssp,
-        [
-            "CD_DIST",
-            "rubrica",
-            "data_ocorrencia",
-        ],
+        ["CD_DIST", "rubrica", "data_ocorrencia"],
         "SSP",
     )
 
@@ -973,7 +835,7 @@ def build(spark, versions):
             F.col("rubrica").isNull()
             | F.col("data_ocorrencia").isNull()
         ).limit(1).count() == 0,
-        "SSP: rubrica ou data nula",
+        "SSP: rubrica/data nula",
     )
 
     latest = ssp.agg(
@@ -982,35 +844,27 @@ def build(spark, versions):
         ).alias("m")
     ).first()["m"]
 
-    first_day, last_day = month_window(
-        latest
-    )
+    first_day, last_day = month_window(latest)
 
     rubricas = sorted(
-        r["rubrica"]
-        for r in (
-            ssp.select("rubrica")
-            .distinct()
-            .collect()
-        )
+        row["rubrica"]
+        for row in ssp.select(
+            "rubrica"
+        ).distinct().collect()
     )
 
     require(
         bool(rubricas),
-        "SSP: nenhuma rubrica",
+        "SSP: nenhuma rubrica encontrada",
     )
 
     ssp_names = {
-        name: slug(
-            name,
-            "ssp_registros_12m",
-        )
+        name: slug(name, "ssp_registros_12m")
         for name in rubricas
     }
 
     require(
-        len(set(ssp_names.values()))
-        == len(ssp_names),
+        len(set(ssp_names.values())) == len(ssp_names),
         "SSP: colunas duplicadas",
     )
 
@@ -1021,11 +875,8 @@ def build(spark, versions):
             F.col("CD_DIST").cast("long"),
         )
         .filter(
-            F.to_date(
-                "data_ocorrencia"
-            ).between(
-                first_day,
-                last_day,
+            F.to_date("data_ocorrencia").between(
+                first_day, last_day
             )
         )
     )
@@ -1039,73 +890,45 @@ def build(spark, versions):
     )
 
     assert_same_codes(
-        located,
-        base,
-        "SSP",
+        located, base, "SSP"
     )
 
     ssp_counts = (
         located
-        .groupBy(
-            "CD_DIST",
-            "rubrica",
-        )
+        .groupBy("CD_DIST", "rubrica")
         .count()
     )
 
     ssp_pivot = (
         ssp_counts
         .groupBy("CD_DIST")
-        .pivot(
-            "rubrica",
-            rubricas,
-        )
-        .agg(
-            F.max("count")
-        )
+        .pivot("rubrica", rubricas)
+        .agg(F.max("count"))
     )
 
     for rubric, field in ssp_names.items():
         ssp_pivot = ssp_pivot.withColumnRenamed(
-            rubric,
-            field,
+            rubric, field
         )
 
     # --------------------------------------------------------
-    # 4.5. WIDE TERRITORIAL
+    # 4.5. JUNCAO DAS FONTES TERRITORIAIS
     # --------------------------------------------------------
 
     result = (
         base
-        .join(
-            geo,
-            "CD_DIST",
-            "left",
-        )
-        .join(
-            obs_pivot,
-            "CD_DIST",
-            "left",
-        )
-        .join(
-            ssp_pivot,
-            "CD_DIST",
-            "left",
-        )
+        .join(geo, "CD_DIST", "left")
+        .join(obs_pivot, "CD_DIST", "left")
+        .join(ssp_pivot, "CD_DIST", "left")
     )
-
-    # Ausencia de ocorrencia SSP = zero registros.
-    # ObservaSampa permanece NULL.
 
     result = result.fillna(
         0,
-        subset=list(
-            ssp_names.values()
-        ),
+        subset=list(ssp_names.values()),
     )
 
     # --------------------------------------------------------
-    # 4.6. INDICADORES NORMALIZADOS
+    # 4.6. FEATURES NORMALIZADAS
     # --------------------------------------------------------
 
     require(
@@ -1135,7 +958,6 @@ def build(spark, versions):
     )
 
     for geo_field in geo_features:
-
         col = f"geo_{geo_field}"
 
         result = result.withColumn(
@@ -1146,7 +968,6 @@ def build(spark, versions):
         )
 
     for rubric in SSP_RATE_RUBRICAS:
-
         require(
             rubric in ssp_names,
             f"SSP: rubrica ausente {rubric}",
@@ -1162,13 +983,11 @@ def build(spark, versions):
         )
 
     # --------------------------------------------------------
-    # 4.7. INCORPORAR IMOVEIS
+    # 4.7. IMOVEIS HOMOLOGADOS
     # --------------------------------------------------------
 
     imoveis_gold, imoveis_summary = build_imoveis(
-        spark,
-        versions,
-        base,
+        spark, versions, base
     )
 
     result = result.join(
@@ -1177,46 +996,34 @@ def build(spark, versions):
         "left",
     )
 
-    # Distritos sem imoveis homologados ficam NULL.
-    # Nao preencher automaticamente com zero.
-
     check_districts(
         result,
         "Gold com imoveis",
     )
 
     # --------------------------------------------------------
-    # 4.8. CONTRATOS FINAIS
+    # 4.8. CONTRATO FINAL
     # --------------------------------------------------------
 
     feature_cols = [
         c for c in result.columns
-        if c not in (
-            "CD_DIST",
-            "NM_DIST",
-        )
+        if c not in ("CD_DIST", "NM_DIST")
     ]
 
     require(
-        len(result.columns)
-        == len(set(result.columns)),
+        len(result.columns) == len(set(result.columns)),
         "Gold: nomes de colunas duplicados",
     )
 
     non_numeric = [
-        f.name
-        for f in result.schema
+        field.name
+        for field in result.schema
         if (
-            f.name in feature_cols
-            and f.name != "imv_metodo_localizacao"
-            and f.dataType.typeName() not in (
-                "double",
-                "float",
-                "long",
-                "integer",
-                "decimal",
-                "short",
-                "byte",
+            field.name in feature_cols
+            and field.name != "imv_metodo_localizacao"
+            and field.dataType.typeName() not in (
+                "double", "float", "long",
+                "integer", "decimal", "short", "byte"
             )
         )
     ]
@@ -1227,14 +1034,11 @@ def build(spark, versions):
     )
 
     require(
-        tuple(result.columns[-6:])
-        == IMOVEIS_FEATURES,
-        "Gold: contrato de colunas imobiliarias invalido",
+        tuple(result.columns[-6:]) == IMOVEIS_FEATURES,
+        "Gold: ordem das colunas imobiliarias invalida",
     )
 
-    # Verificar ausencia de colunas temporais na Gold.
-
-    proibidas = {
+    prohibited = {
         "imv_mes_referencia",
         "imv_atualizado_em",
         "mes",
@@ -1242,23 +1046,15 @@ def build(spark, versions):
     }
 
     require(
-        not (
-            set(result.columns)
-            & proibidas
-        ),
-        "Gold: coluna temporal nao permitida",
+        not set(result.columns).intersection(prohibited),
+        "Gold: coluna temporal proibida",
     )
-
-    # --------------------------------------------------------
-    # 4.9. COBERTURA
-    # --------------------------------------------------------
 
     coverage = result.agg(
         *[
             F.sum(
                 F.when(
-                    F.col(c).isNotNull(),
-                    1,
+                    F.col(c).isNotNull(), 1
                 ).otherwise(0)
             ).alias(c)
             for c in feature_cols
@@ -1276,10 +1072,7 @@ def build(spark, versions):
             for c, n in coverage.items()
             if n < 86
         ],
-        key=lambda x: (
-            x[1],
-            x[0],
-        ),
+        key=lambda x: (x[1], x[0]),
     )
 
     summary = {
@@ -1307,11 +1100,10 @@ def build(spark, versions):
 
 
 # ============================================================
-# 5. COMPARACAO COM A GOLD PUBLICADA
+# 5. COMPARAR PROPOSTA COM DESTINO
 # ============================================================
 
 def target_status(spark, proposed):
-
     if not spark.catalog.tableExists(TARGET):
         return {
             "exists": False,
@@ -1321,24 +1113,8 @@ def target_status(spark, proposed):
 
     current = spark.table(TARGET)
 
-    old_schema = [
-        (
-            f.name,
-            f.dataType.simpleString(),
-        )
-        for f in current.schema
-    ]
-
-    new_schema = [
-        (
-            f.name,
-            f.dataType.simpleString(),
-        )
-        for f in proposed.schema
-    ]
-
-    schema_equal = (
-        old_schema == new_schema
+    schema_equal = same_schema(
+        current, proposed
     )
 
     if not schema_equal:
@@ -1372,10 +1148,201 @@ def target_status(spark, proposed):
 
 
 # ============================================================
-# 6. EXECUCAO
+# 6. ATUALIZAR GOLD EXISTENTE
 # ============================================================
 
-def execute(spark, apply=False):
+def update_target(spark, proposed, versions):
+    """
+    Publicacao Delta controlada.
+
+    Nao cria, exclui nem renomeia distritos.
+    Nao altera schema.
+    Atualiza todos os atributos quando o snapshot muda.
+
+    A transacao MERGE e atomica no Delta.
+    A verificacao de versao anterior reduz risco de
+    concorrencia, mas nao substitui o controle
+    transacional do Delta Lake.
+    """
+
+    require(
+        spark.catalog.tableExists(TARGET),
+        "Gold ausente: --update exige tabela existente",
+    )
+
+    # Contrato da tabela existente.
+
+    current = spark.table(TARGET)
+
+    require(
+        same_schema(current, proposed),
+        "Gold existente possui schema diferente. "
+        "Atualizacao bloqueada.",
+    )
+
+    assert_exact_codes(
+        proposed, current
+    )
+
+    detail = spark.sql(
+        f"DESCRIBE DETAIL {TARGET}"
+    ).select("format").first()
+
+    require(
+        detail is not None
+        and detail["format"].lower() == "delta",
+        "Gold existente nao esta em Delta Lake",
+    )
+
+    # Capturar versao antes das ultimas verificacoes.
+
+    target_version = delta_version(
+        spark, TARGET
+    )
+
+    require(
+        source_versions_unchanged(spark, versions),
+        "Fonte Silver mudou antes da publicacao",
+    )
+
+    require(
+        delta_version(spark, TARGET) == target_version,
+        "Gold mudou durante a preparacao",
+    )
+
+    # Conferir novamente se a proposta ja esta publicada.
+
+    status = target_status(
+        spark, proposed
+    )
+
+    require(
+        status["schema_equal"],
+        "Schema Gold alterado durante a preparacao",
+    )
+
+    if status["identical"]:
+        emit(
+            "GOLD_DISTRICTS_UNCHANGED",
+            target=TARGET,
+            changed_tables=False,
+        )
+        return {
+            "changed": False,
+            "version_before": target_version,
+            "version_after": target_version,
+        }
+
+    # Montar um MERGE estrito:
+    # chave CD_DIST, sem inserts e sem deletes.
+    # Todos os atributos devem existir em ambas as tabelas.
+
+    fields = [
+        c for c in proposed.columns
+        if c != "CD_DIST"
+    ]
+
+    require(
+        fields,
+        "Gold proposta nao possui atributos",
+    )
+
+    assignments = ",\n        ".join(
+        f"t.`{c}` = s.`{c}`"
+        for c in fields
+    )
+
+    view = (
+        "bairroiq_gold_update_"
+        + uuid4().hex
+    )
+
+    proposed.createOrReplaceTempView(
+        view
+    )
+
+    try:
+        require(
+            source_versions_unchanged(spark, versions),
+            "Fonte Silver mudou antes do MERGE",
+        )
+
+        require(
+            delta_version(spark, TARGET) == target_version,
+            "Gold mudou antes do MERGE",
+        )
+
+        sql = f"""
+        MERGE INTO {TARGET} AS t
+        USING {view} AS s
+
+        ON t.CD_DIST = s.CD_DIST
+
+        WHEN MATCHED
+        THEN UPDATE SET
+            {assignments}
+        """
+
+        spark.sql(sql).collect()
+
+    finally:
+        spark.catalog.dropTempView(view)
+
+    # Auditoria integral apos a publicacao.
+
+    final_status = target_status(
+        spark, proposed
+    )
+
+    require(
+        final_status["schema_equal"]
+        and final_status["identical"],
+        "Gold publicada diverge da proposta validada. "
+        "Verificar transacao Delta antes de reexecutar.",
+    )
+
+    final = spark.table(TARGET)
+
+    assert_exact_codes(
+        proposed, final
+    )
+
+    version_after = delta_version(
+        spark, TARGET
+    )
+
+    require(
+        version_after > target_version,
+        "MERGE nao gerou nova versao Delta",
+    )
+
+    emit(
+        "GOLD_DISTRICTS_UPDATE_SUCCESS",
+        target=TARGET,
+        districts=EXPECTED_DISTRICTS,
+        columns=len(proposed.columns),
+        version_before=target_version,
+        version_after=version_after,
+        identical_after_update=True,
+    )
+
+    return {
+        "changed": True,
+        "version_before": target_version,
+        "version_after": version_after,
+    }
+
+
+# ============================================================
+# 7. EXECUCAO
+# ============================================================
+
+def execute(spark, apply=False, update=False):
+
+    require(
+        not (apply and update),
+        "Nao e permitido aplicar e atualizar simultaneamente",
+    )
 
     sources = (
         IBGE,
@@ -1392,33 +1359,21 @@ def execute(spark, apply=False):
             f"Fonte ausente: {table}",
         )
 
-    # Fixar versoes Delta das seis fontes.
-
     versions = {
-        table: delta_version(
-            spark,
-            table,
-        )
+        table: delta_version(spark, table)
         for table in sources
     }
 
     proposed, summary = build(
-        spark,
-        versions,
+        spark, versions
     )
 
     status = target_status(
-        spark,
-        proposed,
+        spark, proposed
     )
 
-    # Garantir que nenhuma Silver mudou durante a leitura.
-
     require(
-        all(
-            delta_version(spark, table) == version
-            for table, version in versions.items()
-        ),
+        source_versions_unchanged(spark, versions),
         "Uma fonte Silver mudou durante a validacao",
     )
 
@@ -1445,11 +1400,10 @@ def execute(spark, apply=False):
     )
 
     # --------------------------------------------------------
-    # 6.1. SOMENTE VALIDACAO
+    # 7.1. MODO CHECK
     # --------------------------------------------------------
 
-    if not apply:
-
+    if not apply and not update:
         emit(
             "GOLD_DISTRICTS_CHECK_SUCCESS",
             changed_tables=False,
@@ -1460,11 +1414,10 @@ def execute(spark, apply=False):
         return summary
 
     # --------------------------------------------------------
-    # 6.2. PUBLICACAO PROTEGIDA
+    # 7.2. SEM ALTERACOES
     # --------------------------------------------------------
 
     if status["identical"]:
-
         emit(
             "GOLD_DISTRICTS_UNCHANGED",
             changed_tables=False,
@@ -1472,21 +1425,49 @@ def execute(spark, apply=False):
 
         return summary
 
-    # Por enquanto nao atualizar uma Gold existente.
-    # Primeiro concluir os testes da nova transformacao.
+    # --------------------------------------------------------
+    # 7.3. MODO UPDATE
+    # --------------------------------------------------------
+
+    if update:
+        require(
+            status["exists"],
+            "Gold inexistente: --update bloqueado",
+        )
+
+        require(
+            status["schema_equal"],
+            "Gold com schema divergente. "
+            "Atualizacao bloqueada.",
+        )
+
+        update_result = update_target(
+            spark,
+            proposed,
+            versions,
+        )
+
+        emit(
+            "GOLD_UPDATE_RESULT",
+            **update_result,
+        )
+
+        return summary
+
+    # --------------------------------------------------------
+    # 7.4. MODO APPLY (CRIACAO INICIAL)
+    # --------------------------------------------------------
 
     require(
         not status["exists"],
-        "Gold existente e divergente. "
-        "Atualizacao bloqueada ate a proxima etapa.",
+        "Gold existente com dados diferentes: "
+        "criacao bloqueada. "
+        "Use --update somente apos validacao.",
     )
 
     require(
-        all(
-            delta_version(spark, table) == version
-            for table, version in versions.items()
-        ),
-        "Fonte Silver alterada antes da publicacao",
+        source_versions_unchanged(spark, versions),
+        "Fonte Silver mudou antes da publicacao",
     )
 
     view = (
@@ -1499,7 +1480,6 @@ def execute(spark, apply=False):
     )
 
     try:
-
         spark.sql(
             f"CREATE TABLE IF NOT EXISTS {TARGET} "
             f"USING DELTA AS "
@@ -1507,19 +1487,15 @@ def execute(spark, apply=False):
         ).collect()
 
     finally:
-
-        spark.catalog.dropTempView(
-            view
-        )
+        spark.catalog.dropTempView(view)
 
     final_status = target_status(
-        spark,
-        proposed,
+        spark, proposed
     )
 
     require(
         final_status["identical"],
-        "Gold publicada difere da transformacao validada",
+        "Gold publicada diverge da proposta validada",
     )
 
     emit(
@@ -1534,7 +1510,7 @@ def execute(spark, apply=False):
 
 
 # ============================================================
-# 7. CLI
+# 8. INTERFACE DE LINHA DE COMANDO
 # ============================================================
 
 def main(argv=None):
@@ -1550,27 +1526,36 @@ def main(argv=None):
     mode.add_argument(
         "--check",
         action="store_true",
+        help="Validar sem publicar",
     )
 
     mode.add_argument(
         "--apply",
         action="store_true",
+        help="Criar Gold inexistente",
+    )
+
+    mode.add_argument(
+        "--update",
+        action="store_true",
+        help="Atualizar Gold existente",
     )
 
     parser.add_argument(
         "--confirm-publish",
         action="store_true",
+        help="Confirmacao obrigatoria de escrita",
     )
 
-    args = parser.parse_args(
-        argv
-    )
+    args = parser.parse_args(argv)
 
-    if args.apply != args.confirm_publish:
+    publish = args.apply or args.update
+
+    if publish != args.confirm_publish:
         parser.error(
-            "Publicacao exige "
-            "--apply --confirm-publish. "
-            "--check e somente leitura."
+            "Publicacao exige --confirm-publish. "
+            "--check nao aceita confirmacao. "
+            "Use --apply ou --update, nunca ambos."
         )
 
     from pyspark.sql import SparkSession
@@ -1583,6 +1568,7 @@ def main(argv=None):
     execute(
         spark,
         apply=args.apply,
+        update=args.update,
     )
 
 
