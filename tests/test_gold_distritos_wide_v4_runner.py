@@ -312,5 +312,25 @@ class TestExecuteReadOnly(unittest.TestCase):
         self.assertFalse(emit.call_args_list[-1].kwargs["changed_tables"])
 
 
+class TestStrictEntryPoint(unittest.TestCase):
+    def test_spark_python_task_exec_without_dunder_file(self):
+        """Simula o exec(compile(...)) do Databricks Serverless."""
+        script = Path(v4.__file__).with_name(
+            "gold_distritos_wide_v4_strict_check.py"
+        )
+        ns = {"__name__": "bairroiq_strict_entry_simulado"}
+        exec(compile(script.read_bytes(), str(script), "exec"), ns)
+        self.assertNotIn("__file__", ns)
+        self.assertEqual(ns["resolve_entry_file"](), script.resolve())
+        self.assertEqual(
+            ns["RUNNER_FILE"],
+            script.resolve().with_name("gold_distritos_wide_v4_runner.py"),
+        )
+        self.assertEqual(
+            ns["load_runner"]().TARGET,
+            "workspace.gold.distritos_wide",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
