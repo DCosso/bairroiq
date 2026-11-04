@@ -1,0 +1,81 @@
+
+name: BairroIQ - Silver Imoveis CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+    paths:
+      - "barrioiq_pipeline/silver_imoveis_runner.py"
+      - "tests/test_silver_imoveis_runner.py"
+      - ".github/workflows/silver-imoveis-ci.yml"
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "barrioiq_pipeline/silver_imoveis_runner.py"
+      - "tests/test_silver_imoveis_runner.py"
+      - ".github/workflows/silver-imoveis-ci.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  silver-imoveis-tests:
+    name: Imoveis runner unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # ==========================================
+      # 01 - CHECKOUT DO REPOSITORIO
+      # ==========================================
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ==========================================
+      # 02 - AMBIENTE PYTHON
+      # ==========================================
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ==========================================
+      # 03 - VALIDACAO DE SINTAXE
+      # ==========================================
+
+      - name: Verify Python syntax
+        run: |
+          python -m py_compile \
+            barrioiq_pipeline/silver_imoveis_runner.py \
+            tests/test_silver_imoveis_runner.py
+
+      # ==========================================
+      # 04 - TESTES AUTOMATIZADOS
+      # ==========================================
+
+      - name: Run Silver Imoveis unit tests
+        run: |
+          python -m unittest discover \
+            -s tests \
+            -p "test_silver_imoveis_runner.py" \
+            -v
+
+      # ==========================================
+      # 05 - CONFIRMACAO
+      # ==========================================
+
+      - name: Confirm Silver Imoveis CI
+        if: success()
+        run: |
+          echo "SILVER_IMOVEIS_CI_SUCCESS"
+          echo "Runner and unit tests validated"
+          echo "No Databricks jobs executed"
+          echo "No data published"
