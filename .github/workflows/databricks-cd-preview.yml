@@ -1,9 +1,29 @@
+
+# ============================================================
+# BAIRROIQ | DATABRICKS CD PREVIEW
+# ============================================================
+#
+# Objetivo:
+#   Validar o Databricks Asset Bundle e examinar
+#   o plano de implantacao antes do deploy.
+#
+# Politica:
+#   - Sete jobs explicitamente autorizados
+#   - Nenhuma exclusao de recurso
+#   - Nenhuma atualizacao inesperada
+#   - Gold somente em modo --check
+#   - Nenhum deploy executado por este workflow
+#   - Nenhum Job Databricks executado
+#
+# ============================================================
+
 name: BarrioIQ - Databricks CD Preview
 
 on:
   push:
     branches:
       - feature/bronze-ddl-automation
+      - feature/gold-distritos-wide
     paths:
       - "barrioiq_pipeline/**"
       - ".github/workflows/databricks-cd-preview.yml"
@@ -20,6 +40,7 @@ concurrency:
 jobs:
   deployment-preview:
     name: Preview Databricks Deployment
+
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: databricks-dev
@@ -33,39 +54,73 @@ jobs:
       DATABRICKS_AUTH_TYPE: pat
 
     steps:
+
+      # ------------------------------------------------------
+      # 01. CHECKOUT
+      # ------------------------------------------------------
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # ------------------------------------------------------
+      # 02. PYTHON
+      # ------------------------------------------------------
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      # ------------------------------------------------------
+      # 03. VALIDACAO BRONZE SEM ESCRITA
+      # ------------------------------------------------------
+
       - name: Validate Bronze DDL files without applying
         run: python bronze_ddl_runner.py
+
+      # ------------------------------------------------------
+      # 04. DATABRICKS CLI
+      # ------------------------------------------------------
 
       - name: Install Databricks CLI
         uses: databricks/setup-cli@main
 
+      # ------------------------------------------------------
+      # 05. AUTENTICACAO OAUTH
+      # ------------------------------------------------------
+
       - name: Obtain scoped OAuth token
         shell: bash
+
         env:
           DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+
         run: |
           python - <<'PY'
           import os
           import json
           import base64
+
           from urllib.parse import urlencode
           from urllib.request import Request, urlopen
 
-          host = os.environ["DATABRICKS_HOST"].rstrip("/")
-          client_id = os.environ["DATABRICKS_CLIENT_ID"]
-          secret = os.environ["DATABRICKS_CLIENT_SECRET"]
+          host = os.environ[
+              "DATABRICKS_HOST"
+          ].rstrip("/")
+
+          client_id = os.environ[
+              "DATABRICKS_CLIENT_ID"
+          ]
+
+          secret = os.environ[
+              "DATABRICKS_CLIENT_SECRET"
+          ]
 
           if not all((host, client_id, secret)):
-              raise RuntimeError("Missing OAuth configuration")
+              raise RuntimeError(
+                  "Missing OAuth configuration"
+              )
 
           credentials = base64.b64encode(
               f"{client_id}:{secret}".encode()
@@ -73,110 +128,359 @@ jobs:
 
           request = Request(
               f"{host}/oidc/v1/token",
+
               data=urlencode({
                   "grant_type": "client_credentials",
                   "scope": "jobs workspace",
               }).encode(),
+
               headers={
-                  "Authorization": f"Basic {credentials}",
-                  "Content-Type": "application/x-www-form-urlencoded",
+                  "Authorization": (
+                      f"Basic {credentials}"
+                  ),
+                  "Content-Type": (
+                      "application/x-www-form-urlencoded"
+                  ),
               },
+
               method="POST",
           )
 
-          with urlopen(request, timeout=30) as response:
-              token = json.load(response)["access_token"]
+          with urlopen(
+              request,
+              timeout=30,
+          ) as response:
 
-          print(f"::add-mask::{token}")
+              token = json.load(
+                  response
+              )["access_token"]
 
-          with open(os.environ["GITHUB_ENV"], "a") as env:
-              env.write(f"DATABRICKS_TOKEN={token}\n")
+          print(
+              f"::add-mask::{token}"
+          )
 
-          print("OAuth authentication OK")
+          with open(
+              os.environ["GITHUB_ENV"],
+              "a",
+              encoding="utf-8",
+          ) as env:
+
+              env.write(
+                  f"DATABRICKS_TOKEN={token}\n"
+              )
+
+          print(
+              "OAuth authentication OK"
+          )
           PY
 
+      # ------------------------------------------------------
+      # 06. VALIDAR BUNDLE
+      # ------------------------------------------------------
+
       - name: Validate Databricks Bundle
-        run: databricks bundle validate --target dev
+        run: |
+          databricks bundle validate --target dev
+
+      # ------------------------------------------------------
+      # 07. GERAR PLANO JSON
+      # ------------------------------------------------------
 
       - name: Generate deployment plan
         shell: bash
+
         run: |
+          set -euo pipefail
+
           databricks bundle plan \
             --target dev \
-            --output json > "$RUNNER_TEMP/bairroiq-plan.json"
+            --output json \
+            > "$RUNNER_TEMP/bairroiq-plan.json"
+
+      # ------------------------------------------------------
+      # 08. AUDITAR PLANO
+      # ------------------------------------------------------
 
       - name: Inspect and validate planned resource actions
         shell: bash
+
         run: |
           python - <<'PY'
           import json
           import os
+
           from pathlib import Path
 
-          path = Path(os.environ["RUNNER_TEMP"]) / "bairroiq-plan.json"
-          data = json.loads(path.read_text(encoding="utf-8"))
+          path = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "bairroiq-plan.json"
+          )
+
+          if not path.is_file():
+              raise RuntimeError(
+                  "Deployment plan not found"
+              )
+
+          data = json.loads(
+              path.read_text(
+                  encoding="utf-8"
+              )
+          )
 
           if not isinstance(data, dict):
-              raise RuntimeError("Invalid deployment plan document")
-
-          if "plan" not in data or not isinstance(data["plan"], dict):
               raise RuntimeError(
-                  "Unexpected plan format: expected a 'plan' object"
+                  "Invalid deployment plan document"
+              )
+
+          if (
+              "plan" not in data
+              or not isinstance(
+                  data["plan"],
+                  dict,
+              )
+          ):
+              raise RuntimeError(
+                  "Unexpected plan format: "
+                  "expected a plan object"
               )
 
           plan = data["plan"]
 
-          smoke = "resources.jobs.barrioiq_smoke_job"
-          bronze = "resources.jobs.bairroiq_bronze_ddl_job"
+          # ==========================================
+          # CONTRATO FECHADO: SETE JOBS
+          # ==========================================
 
-          # Politica inicial: preservar o Job atual e permitir
-          # somente a criacao do Job Bronze ou recursos inalterados.
+          smoke = (
+              "resources.jobs."
+              "bairroiq_smoke_job"
+          )
+
+          bronze = (
+              "resources.jobs."
+              "bairroiq_bronze_ddl_job"
+          )
+
+          ibge = (
+              "resources.jobs."
+              "bairroiq_silver_ibge_check_job"
+          )
+
+          ssp = (
+              "resources.jobs."
+              "bairroiq_silver_ssp_check_job"
+          )
+
+          observasampa = (
+              "resources.jobs."
+              "bairroiq_silver_observasampa_check_job"
+          )
+
+          geosampa = (
+              "resources.jobs."
+              "bairroiq_silver_geosampa_check_job"
+          )
+
+          gold = (
+              "resources.jobs."
+              "bairroiq_gold_wide_check_job"
+          )
+
+          # ==========================================
+          # POLITICA RESTRITIVA
+          # ==========================================
+          #
+          # Smoke:
+          #   Somente preservar.
+          #
+          # Bronze:
+          #   Criar ou preservar.
+          #
+          # Silver IBGE:
+          #   Criar ou preservar.
+          #
+          # Silver SSP:
+          #   Preservar ou atualizar.
+          #   Atualizacao condicionada aos controles
+          #   adicionais existentes no CD Deploy.
+          #
+          # Silver ObservaSampa:
+          #   Criar ou preservar.
+          #
+          # Silver GeoSampa:
+          #   Criar ou preservar.
+          #
+          # Gold Wide:
+          #   Criar ou preservar.
+          #   A definicao do Job permite apenas
+          #   o parametro --check.
+          #
+          # Todas as demais acoes sao bloqueadas.
+          #
+          # ==========================================
+
           allowed_actions = {
-              smoke: {"skip"},
-              bronze: {"create", "skip"},
+              smoke: {
+                  "skip",
+              },
+
+              bronze: {
+                  "create",
+                  "skip",
+              },
+
+              ibge: {
+                  "create",
+                  "skip",
+              },
+
+              ssp: {
+                  "update",
+                  "skip",
+              },
+
+              observasampa: {
+                  "create",
+                  "skip",
+              },
+
+              geosampa: {
+                  "create",
+                  "skip",
+              },
+
+              gold: {
+                  "create",
+                  "skip",
+              },
           }
+
+          if len(allowed_actions) != 7:
+              raise RuntimeError(
+                  "Expected exactly seven allowed jobs"
+              )
 
           errors = []
 
-          for resource, change in sorted(plan.items()):
-              if not isinstance(change, dict):
-                  errors.append(f"Invalid change structure: {resource}")
+          # ==========================================
+          # VALIDAR CADA RECURSO DO PLANO
+          # ==========================================
+
+          for resource, change in sorted(
+              plan.items()
+          ):
+
+              if not isinstance(
+                  change,
+                  dict,
+              ):
+
+                  errors.append(
+                      "Invalid change structure: "
+                      f"{resource}"
+                  )
                   continue
 
-              action = change.get("action")
-              fields = change.get("changes")
+              action = change.get(
+                  "action"
+              )
+
+              fields = change.get(
+                  "changes"
+              )
+
               if fields is None:
                   fields = {}
 
-              print(f"RESOURCE: {resource}")
-              print(f"ACTION: {action}")
+              print(
+                  f"RESOURCE: {resource}"
+              )
 
-              if not isinstance(fields, dict):
-                  errors.append(f"Invalid changes structure: {resource}")
+              print(
+                  f"ACTION: {action}"
+              )
+
+              if not isinstance(
+                  fields,
+                  dict,
+              ):
+
+                  errors.append(
+                      "Invalid changes structure: "
+                      f"{resource}"
+                  )
                   continue
 
               for field in sorted(fields):
-                  print(f"  FIELD: {field}")
-
-              if resource not in allowed_actions:
-                  errors.append(f"Unexpected resource: {resource}")
-                  continue
-
-              if action not in allowed_actions[resource]:
-                  errors.append(
-                      f"Action requires review: {resource} -> {action}"
+                  print(
+                      f"  FIELD: {field}"
                   )
 
+              if resource not in allowed_actions:
+                  errors.append(
+                      f"Unexpected resource: {resource}"
+                  )
+                  continue
+
+              if action not in allowed_actions[
+                  resource
+              ]:
+
+                  errors.append(
+                      "Action requires review: "
+                      f"{resource} -> {action}"
+                  )
+
+          # ==========================================
+          # BLOQUEAR PLANO NAO AUTORIZADO
+          # ==========================================
+
           if errors:
-              raise RuntimeError("\n".join(errors))
+              raise RuntimeError(
+                  "\n".join(errors)
+              )
 
           if not plan:
-              print("NO RESOURCE CHANGES")
+              print(
+                  "NO RESOURCE CHANGES"
+              )
 
-          print("PREVIEW_RESOURCE_ACTIONS_ACCEPTED")
-          print("NO DEPLOYMENT EXECUTED")
-          print("NO BRONZE DDL EXECUTED")
+          # ==========================================
+          # RESULTADO
+          # ==========================================
+
+          print(
+              "SEVEN_JOB_ALLOWLIST_VALIDATED"
+          )
+
+          print(
+              "PREVIEW_RESOURCE_ACTIONS_ACCEPTED"
+          )
+
+          print(
+              "NO DEPLOYMENT EXECUTED"
+          )
+
+          print(
+              "NO DATABRICKS JOB EXECUTED"
+          )
+
+          print(
+              "NO GOLD UPDATE EXECUTED"
+          )
           PY
 
+      # ------------------------------------------------------
+      # 09. CONCLUSAO
+      # ------------------------------------------------------
+
       - name: Preview completed
-        run: echo "BARRIOIQ_CD_PREVIEW_SUCCESS"
+        run: |
+          echo "======================================"
+          echo "BAIRROIQ | DATABRICKS CD PREVIEW"
+          echo "======================================"
+          echo "Allowed resources: 7 jobs"
+          echo "Deploy executed: NO"
+          echo "Databricks jobs executed: NO"
+          echo "Gold write operations: NONE"
+          echo "======================================"
+          echo "BARRIOIQ_CD_PREVIEW_SUCCESS"
