@@ -7,6 +7,13 @@ Arquivo versionado: distritos_centroides_ibge_2022.json
 
 O modulo nao usa GeoPandas e nao executa DDL/DML. A unica operacao
 sobre Spark e um JOIN em memoria com 96 registros da referencia.
+
+Compatibilidade de nomes: alguns NM_DIST da Silver IBGE contem U+FFFD
+(caractere de substituicao para letras acentuadas). A correspondencia
+territorial exige CD_DIST exato e valida os nomes caractere por caractere,
+aceitando U+FFFD somente no nome da Silver e somente em uma posicao
+correspondente do nome oficial (mesmo comprimento). A regra replica
+silver_geosampa_runner.compatible_ibge_name.
 """
 
 import hashlib
@@ -28,6 +35,7 @@ EXPECTED_CRS_SOURCE = "EPSG:4674"
 EXPECTED_CRS_PROJECTED = "EPSG:31983"
 EXPECTED_CRS_TARGET = "EPSG:4326"
 GEO_COLUMNS = ("latitude", "longitude")
+REPLACEMENT_CHAR = "\ufffd"
 
 
 class GeoContractError(ValueError):
@@ -47,6 +55,22 @@ def normalize_name(value):
         if not unicodedata.combining(char)
     )
     return re.sub(r"\s+", " ", text).strip().casefold()
+
+
+def compatible_ibge_name(silver_name, official_name):
+    """Regra conservadora ja adotada pela Silver GeoSampa.
+
+    A Silver IBGE pode ter U+FFFD no lugar de uma letra acentuada.
+    Exige mesmo comprimento e todos os outros caracteres identicos.
+    O wildcard so existe no nome Silver, nunca no nome oficial.
+    """
+    a = normalize_name(silver_name)
+    b = normalize_name(official_name)
+    return bool(
+        a and b
+        and len(a) == len(b)
+        and all(x == y or x == REPLACEMENT_CHAR for x, y in zip(a, b))
+    )
 
 
 def load_centroids(path=None):
@@ -174,7 +198,7 @@ def attach_coordinates(spark, base, path=None):
         require(code is not None, "Base contem CD_DIST nulo")
         key = int(code)
         require(key not in base_codes, f"Base tem CD_DIST duplicado: {key}")
-        base_codes[key] = normalize_name(row["NM_DIST"])
+        base_codes[key] = row["NM_DIST"]
 
     geo_by_code = {row["CD_DIST"]: row for row in rows}
     require(
@@ -185,9 +209,14 @@ def attach_coordinates(spark, base, path=None):
     wrong_names = [
         code
         for code, name in base_codes.items()
-        if name != normalize_name(geo_by_code[code]["NM_DIST"])
+        if not compatible_ibge_name(name, geo_by_code[code]["NM_DIST"])
     ]
     require(not wrong_names, f"Nomes de distritos divergentes: {wrong_names}")
+
+    damaged_names = sum(
+        REPLACEMENT_CHAR in name
+        for name in base_codes.values()
+    )
 
     schema = StructType([
         StructField("CD_DIST", LongType(), False),
@@ -222,6 +251,7 @@ def attach_coordinates(spark, base, path=None):
 
     return enriched, {
         "distritos_geolocalizados": EXPECTED_DISTRICTS,
+        "nomes_silver_com_caractere_substituido": damaged_names,
         "metodo": "CENTROIDE",
         "crs": EXPECTED_CRS_TARGET,
         "sha256_json": sha_json,
