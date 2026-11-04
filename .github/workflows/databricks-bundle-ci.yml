@@ -411,7 +411,7 @@ jobs:
               key="bairroiq_gold_wide_check_job",
               expected_name="bairroiq-gold-wide-check-job",
               expected_task="validar_gold_distritos_wide",
-              expected_script="gold_distritos_wide_runner.py",
+              expected_script="gold_distritos_wide_v4_strict_check.py",
               expected_env="gold_serverless",
               expected_job_timeout=3600,
               expected_task_timeout=3300,
@@ -422,6 +422,19 @@ jobs:
           print("Bundle validado estruturalmente: 7 Job(s)")
           print("BUNDLE_STATIC_VALIDATION_SUCCESS")
           PY
+
+      - name: Validate Gold v3 and v4 tests and runner syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_gold_distritos_wide_runner.py' -v
+          python -m unittest discover -s tests -p 'test_gold_distritos_wide_v4_runner.py' -v
+          python -m unittest discover -s tests -p 'test_gold_distritos_geo.py' -v
+          python -m py_compile \
+            barrioiq_pipeline/gold_distritos_wide_runner.py \
+            barrioiq_pipeline/gold_distritos_wide_v4_runner.py \
+            barrioiq_pipeline/gold_distritos_geo.py \
+            barrioiq_pipeline/gold_distritos_wide_v4_strict_check.py
 
       - name: Validate Bronze SQL files without applying
         run: python barrioiq_pipeline/bronze_ddl_runner.py
