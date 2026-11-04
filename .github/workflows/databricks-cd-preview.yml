@@ -1,5 +1,5 @@
 # ============================================================
-# BAIRROIQ | DATABRICKS CD PREVIEW | 7 JOBS
+# BAIRROIQ | DATABRICKS CD PREVIEW | 7 JOBS | PLAN KEY FIX
 # ============================================================
 # Este workflow e SOMENTE LEITURA.
 # Examina a proposta de deploy e sinaliza atualizacoes
@@ -130,7 +130,9 @@ jobs:
               raise RuntimeError("Unexpected plan JSON structure")
           plan = payload["plan"]
 
-          prefix = "resources.jobs."
+          # A CLI Databricks utiliza resources_jobs.<key> em alguns
+          # planos JSON. Tambem aceitamos resources.jobs.<key>, sem
+          # abrir permissao para outros tipos ou nomes de recursos.
           known_jobs = {
               "bairroiq_smoke_job",
               "bairroiq_bronze_ddl_job",
@@ -140,13 +142,24 @@ jobs:
               "bairroiq_silver_geosampa_check_job",
               "bairroiq_gold_wide_check_job",
           }
-          expected_resources = {prefix + job for job in known_jobs}
-          if len(expected_resources) != 7:
+          prefixes = ("resources_jobs.", "resources.jobs.")
+          if len(known_jobs) != 7:
               raise RuntimeError("Expected exactly seven authorized job identities")
+
+          def identify_job(resource):
+              if not isinstance(resource, str):
+                  return None
+              for prefix in prefixes:
+                  if resource.startswith(prefix):
+                      name = resource[len(prefix):]
+                      if name in known_jobs:
+                          return name
+              return None
 
           errors = []
           requires_review = []
           rows = []
+          seen_jobs = set()
 
           # Preview reporta updates em recursos conhecidos.
           # Isso NAO autoriza essas alteracoes no CD Deploy.
@@ -172,9 +185,17 @@ jobs:
 
               rows.append((resource, action, len(fields)))
 
-              if resource not in expected_resources:
+              job_key = identify_job(resource)
+              if job_key is None:
                   errors.append(f"Unknown resource in plan: {resource}")
                   continue
+
+              # Impede que dois aliases da mesma identidade sejam
+              # usados no mesmo plano.
+              if job_key in seen_jobs:
+                  errors.append(f"Duplicate job identity in plan: {job_key}")
+                  continue
+              seen_jobs.add(job_key)
 
               if action not in {"create", "skip", "update"}:
                   errors.append(f"Blocked plan operation: {resource} -> {action}")
@@ -182,10 +203,7 @@ jobs:
 
               if action == "update":
                   requires_review.append((resource, action, sorted(fields)))
-              elif (
-                  resource == prefix + "bairroiq_smoke_job"
-                  and action == "create"
-              ):
+              elif job_key == "bairroiq_smoke_job" and action == "create":
                   requires_review.append((resource, action, sorted(fields)))
 
           summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
