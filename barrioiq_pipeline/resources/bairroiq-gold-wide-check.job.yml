@@ -1,0 +1,87 @@
+
+# ============================================================
+# BAIRROIQ | GOLD DISTRITOS WIDE | JOB DE VALIDACAO
+# ============================================================
+#
+# Objetivo:
+#   Recalcular em memoria a Gold Wide a partir das
+#   fontes Silver e comparar integralmente com a
+#   tabela Delta publicada.
+#
+# Fontes:
+#   IBGE
+#   GeoSampa
+#   ObservaSampa
+#   SSP-SP
+#   Imoveis
+#   De/para territorial aprovado
+#
+# Destino consultado:
+#   workspace.gold.distritos_wide
+#
+# Seguranca:
+#   - Somente --check
+#   - Nenhuma publicacao ou MERGE
+#   - Nenhum agendamento automatico
+#   - Nenhuma retentativa automatica
+#   - Uma execucao simultanea por job
+#   - Ambiente Databricks Serverless v2
+#
+# ============================================================
+
+resources:
+  jobs:
+    bairroiq_gold_wide_check_job:
+      name: bairroiq-gold-wide-check-job
+
+      description: >-
+        Valida a Gold Distritos Wide do BairroIQ
+        utilizando as seis tabelas Silver.
+        Confere contratos, granularidade distrital,
+        indicadores imobiliarios e consistencia
+        integral com a Gold publicada.
+        Execucao exclusivamente em modo leitura.
+
+      # Uma execucao simultanea deste Job.
+      max_concurrent_runs: 1
+
+      # Limite total: 60 minutos.
+      timeout_seconds: 3600
+
+      # Permite enfileirar execucoes manuais.
+      queue:
+        enabled: true
+
+      # Sem schedule, trigger ou continuous.
+      # A execucao deve ser iniciada manualmente.
+
+      environments:
+        - environment_key: gold_serverless
+          spec:
+            environment_version: "2"
+
+      tasks:
+        - task_key: validar_gold_distritos_wide
+
+          description: >-
+            Executa gold_distritos_wide_runner.py
+            exclusivamente com --check.
+            Reconstroi o snapshot em memoria e
+            compara schema e conteudo com a
+            Gold publicada.
+            Nao executa --apply nem --update.
+
+          environment_key: gold_serverless
+
+          # Limite da tarefa: 55 minutos.
+          timeout_seconds: 3300
+
+          # Nenhuma repeticao automatica.
+          max_retries: 0
+
+          spark_python_task:
+            python_file: ../gold_distritos_wide_runner.py
+            source: WORKSPACE
+
+            parameters:
+              - "--check"
