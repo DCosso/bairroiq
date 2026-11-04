@@ -1,0 +1,171 @@
+
+# ============================================================
+# BAIRROIQ | GOLD WIDE | CONTINUOUS INTEGRATION
+# ============================================================
+#
+# Objetivo:
+#   Validar automaticamente o runner Gold Distritos Wide.
+#
+# Seguranca:
+#   - Nenhuma conexao com Databricks
+#   - Nenhuma publicacao de tabelas
+#   - Nenhuma modificacao de dados
+#   - Nenhum segredo ou credencial necessario
+#   - Somente testes locais
+#
+# ============================================================
+
+name: BairroIQ - Gold Wide CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+    paths:
+      - "barrioiq_pipeline/gold_distritos_wide_runner.py"
+      - "tests/test_gold_distritos_wide_runner.py"
+      - ".github/workflows/gold-wide-ci.yml"
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "barrioiq_pipeline/gold_distritos_wide_runner.py"
+      - "tests/test_gold_distritos_wide_runner.py"
+      - ".github/workflows/gold-wide-ci.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+
+  gold-wide-tests:
+
+    name: Gold Wide - Quality and Safety Tests
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 10
+
+    steps:
+
+      # ------------------------------------------------------
+      # 1. CHECKOUT
+      # ------------------------------------------------------
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------
+      # 2. PYTHON
+      # ------------------------------------------------------
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ------------------------------------------------------
+      # 3. VALIDAR ESTRUTURA
+      # ------------------------------------------------------
+
+      - name: Verify required files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f \
+            barrioiq_pipeline/gold_distritos_wide_runner.py
+
+          test -f \
+            tests/test_gold_distritos_wide_runner.py
+
+          echo "GOLD_REQUIRED_FILES_OK"
+
+      # ------------------------------------------------------
+      # 4. VALIDAR SINTAXE
+      # ------------------------------------------------------
+
+      - name: Verify Python syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m py_compile \
+            barrioiq_pipeline/gold_distritos_wide_runner.py \
+            tests/test_gold_distritos_wide_runner.py
+
+          echo "GOLD_PYTHON_SYNTAX_OK"
+
+      # ------------------------------------------------------
+      # 5. EXECUTAR TESTES UNITARIOS
+      # ------------------------------------------------------
+
+      - name: Run Gold Wide unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m unittest discover \
+            -s tests \
+            -p "test_gold_distritos_wide_runner.py" \
+            -v
+
+      # ------------------------------------------------------
+      # 6. CONFIRMAR REGRAS DE SEGURANCA
+      # ------------------------------------------------------
+
+      - name: Verify publication protection
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          from barrioiq_pipeline import (
+              gold_distritos_wide_runner as runner
+          )
+
+          assert runner.TARGET == (
+              "workspace.gold.distritos_wide"
+          )
+
+          assert runner.EXPECTED_DISTRICTS == 96
+
+          assert len(runner.IMOVEIS_FEATURES) == 6
+
+          assert "imv_mes_referencia" not in (
+              runner.IMOVEIS_FEATURES
+          )
+
+          assert "imv_atualizado_em" not in (
+              runner.IMOVEIS_FEATURES
+          )
+
+          assert runner.METODO_IMOVEIS == (
+              "PROXY_OSM_HOMOLOGADO"
+          )
+
+          print("GOLD_PUBLICATION_CONTRACT_OK")
+          PY
+
+      # ------------------------------------------------------
+      # 7. CONFIRMACAO
+      # ------------------------------------------------------
+
+      - name: Confirm Gold Wide CI
+        if: success()
+        shell: bash
+        run: |
+          echo "======================================"
+          echo "BAIRROIQ | GOLD WIDE CI"
+          echo "======================================"
+          echo "Python syntax: OK"
+          echo "Unit tests: OK"
+          echo "Publication contract: OK"
+          echo "Databricks execution: NONE"
+          echo "Tables modified: NONE"
+          echo "======================================"
+          echo "GOLD_WIDE_CI_SUCCESS"
