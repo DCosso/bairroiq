@@ -14,7 +14,31 @@ import argparse
 import importlib.util
 from pathlib import Path
 
-RUNNER_FILE = Path(__file__).resolve().with_name(
+def resolve_entry_file():
+    """Localiza o script em Python comum e em Databricks Serverless.
+
+    No spark_python_task, o Databricks pode executar o arquivo por
+    exec(compile(conteudo, filename, "exec")), sem definir __file__.
+    Nesse caso, co_filename conserva o caminho real do script.
+    """
+    sources = (
+        globals().get("__file__"),
+        resolve_entry_file.__code__.co_filename,
+    )
+    for source in sources:
+        if not source:
+            continue
+        candidate = Path(source).resolve()
+        if (candidate.name == "gold_distritos_wide_v4_strict_check.py"
+                and candidate.is_file()):
+            return candidate
+    raise RuntimeError(
+        "BAIRROIQ_GOLD_V4_STRICT_CHECK_FAILED: "
+        "Nao foi possivel identificar o caminho do script Python"
+    )
+
+
+RUNNER_FILE = resolve_entry_file().with_name(
     "gold_distritos_wide_v4_runner.py"
 )
 TARGET = "workspace.gold.distritos_wide"
