@@ -1,4 +1,3 @@
-
 name: BarrioIQ - Databricks Bundle CI
 
 on:
@@ -6,11 +5,9 @@ on:
     branches:
       - main
       - "feature/**"
-
   pull_request:
     branches:
       - main
-
   workflow_dispatch:
 
 permissions:
@@ -41,10 +38,6 @@ jobs:
           from pathlib import Path
           import yaml
 
-          # ==========================================
-          # 01 - CONFIGURACAO E FUNCOES AUXILIARES
-          # ==========================================
-
           root = Path("barrioiq_pipeline").resolve()
 
           def require(condition, message):
@@ -52,17 +45,9 @@ jobs:
                   raise ValueError(message)
 
           def read_yaml(path):
-              require(
-                  path.is_file(),
-                  f"Arquivo ausente: {path}",
-              )
-              data = yaml.safe_load(
-                  path.read_text(encoding="utf-8")
-              )
-              require(
-                  isinstance(data, dict),
-                  f"YAML invalido: {path}",
-              )
+              require(path.is_file(), f"Arquivo ausente: {path}")
+              data = yaml.safe_load(path.read_text(encoding="utf-8"))
+              require(isinstance(data, dict), f"YAML invalido: {path}")
               return data
 
           def check_local_file(owner, value):
@@ -71,102 +56,54 @@ jobs:
                   f"Caminho ausente em {owner}",
               )
               require(
-                  not Path(value).is_absolute()
-                  and "${" not in value,
+                  not Path(value).is_absolute() and "${" not in value,
                   f"Esperado caminho local relativo: {value}",
               )
-
               path = (owner.parent / value).resolve()
-
               require(
                   path.is_relative_to(root),
                   f"Caminho fora do Bundle: {value}",
               )
-              require(
-                  path.is_file(),
-                  f"Arquivo nao encontrado: {path}",
-              )
-
-              print(
-                  f"ARQUIVO OK: {path.relative_to(root)}"
-              )
+              require(path.is_file(), f"Arquivo nao encontrado: {path}")
+              print(f"ARQUIVO OK: {path.relative_to(root)}")
               return path
 
-          # ==========================================
-          # 02 - LER CONFIGURACAO DO BUNDLE
-          # ==========================================
-
+          # 1. Ler todos os recursos incluidos no Bundle.
           main_file = root / "databricks.yml"
           config = read_yaml(main_file)
-
           require(
-              config.get("bundle", {}).get("name")
-              == "barrioiq_pipeline",
+              config.get("bundle", {}).get("name") == "barrioiq_pipeline",
               "Nome inesperado do Bundle",
           )
-
           includes = config.get("include") or []
-
-          require(
-              isinstance(includes, list),
-              "include deve ser uma lista",
-          )
-
+          require(isinstance(includes, list), "include deve ser lista")
           files = {main_file}
-
           for pattern in includes:
               require(
-                  isinstance(pattern, str)
-                  and bool(pattern),
+                  isinstance(pattern, str) and bool(pattern),
                   "include invalido",
               )
               files.update(root.glob(pattern))
 
-          # ==========================================
-          # 03 - DESCOBRIR RECURSOS
-          # ==========================================
-
           jobs = {}
           owners = {}
-
           for file in sorted(files):
               doc = read_yaml(file)
               resources = doc.get("resources") or {}
-
-              require(
-                  isinstance(resources, dict),
-                  f"Resources invalido em {file}",
-              )
-
+              require(isinstance(resources, dict), f"Resources invalido: {file}")
               require(
                   set(resources).issubset({"jobs"}),
                   f"Tipo de recurso inesperado em {file}",
               )
-
               job_resources = resources.get("jobs") or {}
-
-              require(
-                  isinstance(job_resources, dict),
-                  f"Jobs invalidos em {file}",
-              )
-
+              require(isinstance(job_resources, dict), f"Jobs invalidos: {file}")
               for key, job in job_resources.items():
-                  require(
-                      key not in jobs,
-                      f"Job duplicado: {key}",
-                  )
-                  require(
-                      isinstance(job, dict),
-                      f"Job invalido: {key}",
-                  )
-
+                  require(key not in jobs, f"Job duplicado: {key}")
+                  require(isinstance(job, dict), f"Job invalido: {key}")
                   jobs[key] = job
                   owners[key] = file
 
-          # ==========================================
-          # 04 - CONTRATO FECHADO: SEIS JOBS
-          # ==========================================
-
+          # 2. Contrato fechado: os seis Jobs anteriores + Gold.
           expected_jobs = {
               "barrioiq_smoke_job",
               "bairroiq_bronze_ddl_job",
@@ -174,246 +111,146 @@ jobs:
               "bairroiq_silver_ssp_check_job",
               "bairroiq_silver_observasampa_check_job",
               "bairroiq_silver_geosampa_check_job",
+              "bairroiq_gold_wide_check_job",
           }
-
           require(
               set(jobs) == expected_jobs,
               f"Conjunto inesperado de Jobs: {sorted(jobs)}",
           )
+          print("BUNDLE_SEVEN_JOBS_DISCOVERED")
 
-          print("BUNDLE_SIX_JOBS_DISCOVERED")
-
-          # ==========================================
-          # 05 - VALIDACAO GENERICA DAS TAREFAS
-          # ==========================================
-
+          # 3. Validacao generica de todas as tarefas e scripts.
           tasks_by_job = {}
-
           for key, job in jobs.items():
               environments = job.get("environments") or []
-
-              env_keys = [
-                  env["environment_key"]
-                  for env in environments
-              ]
-
+              env_keys = [env["environment_key"] for env in environments]
               require(
                   len(env_keys) == len(set(env_keys)),
                   f"Ambiente duplicado no Job {key}",
               )
-
               tasks = job.get("tasks") or []
-
-              task_keys = [
-                  task["task_key"]
-                  for task in tasks
-              ]
-
+              task_keys = [task["task_key"] for task in tasks]
               require(
-                  bool(tasks)
-                  and len(task_keys) == len(set(task_keys)),
+                  bool(tasks) and len(task_keys) == len(set(task_keys)),
                   f"Tarefas ausentes ou duplicadas no Job {key}",
               )
-
-              tasks_by_job[key] = {
-                  task["task_key"]: task
-                  for task in tasks
-              }
-
+              tasks_by_job[key] = {task["task_key"]: task for task in tasks}
               for task in tasks:
                   task_key = task["task_key"]
-
                   notebook = task.get("notebook_task")
                   python = task.get("spark_python_task")
-
                   require(
-                      (notebook is not None)
-                      != (python is not None),
+                      (notebook is not None) != (python is not None),
                       f"Tipo de tarefa inesperado: {key}/{task_key}",
                   )
-
                   if notebook is not None:
                       check_local_file(
-                          owners[key],
-                          notebook.get("notebook_path"),
+                          owners[key], notebook.get("notebook_path")
                       )
-
                   if python is not None:
                       path = check_local_file(
-                          owners[key],
-                          python.get("python_file"),
+                          owners[key], python.get("python_file")
                       )
-
-                      require(
-                          path.suffix == ".py",
-                          f"Script Python invalido: {path}",
-                      )
-
+                      require(path.suffix == ".py", f"Script invalido: {path}")
                       compile(
-                          path.read_text(encoding="utf-8"),
-                          str(path),
-                          "exec",
+                          path.read_text(encoding="utf-8"), str(path), "exec"
                       )
-
                       require(
                           python.get("source") == "WORKSPACE",
                           f"Source inesperado: {task_key}",
                       )
-
                       require(
                           task.get("environment_key") in env_keys,
                           f"Ambiente ausente: {task_key}",
                       )
-
                   for dep in task.get("depends_on") or []:
                       require(
                           dep["task_key"] in task_keys
                           and dep["task_key"] != task_key,
                           f"Dependencia invalida: {task_key}",
                       )
-
           print("BUNDLE_GENERIC_TASKS_VALIDATED")
 
-          # ==========================================
-          # 06 - PRESERVAR JOB SMOKE
-          # ==========================================
-
+          # 4. Preservar a sequencia do Smoke Job.
           smoke = tasks_by_job["barrioiq_smoke_job"]
-
           require(
-              set(smoke) == {
-                  "validar_ambiente",
-                  "validar_qualidade",
-              },
-              "Tarefas inesperadas no Job de qualidade",
+              set(smoke) == {"validar_ambiente", "validar_qualidade"},
+              "Tarefas inesperadas no Smoke Job",
           )
-
           require(
               not smoke["validar_ambiente"].get("depends_on"),
-              "validar_ambiente deve ser a tarefa inicial",
+              "validar_ambiente deve ser tarefa inicial",
           )
-
           require(
               smoke["validar_qualidade"].get("depends_on")
               == [{"task_key": "validar_ambiente"}],
-              "Dependencia do Job de qualidade alterada",
+              "Dependencia Smoke alterada",
           )
-
           print("SMOKE_JOB_STRUCTURE_VALIDATED")
 
-          # ==========================================
-          # 07 - PRESERVAR JOB BRONZE DDL
-          # ==========================================
-
+          # 5. Preservar o Job Bronze DDL, inclusive a tarefa de aplicacao.
           bronze_key = "bairroiq_bronze_ddl_job"
-
           bronze = jobs[bronze_key]
           bronze_tasks = tasks_by_job[bronze_key]
-
           require(
               set(bronze_tasks) == {
-                  "validar_ddls_bronze",
-                  "aplicar_ddls_bronze",
+                  "validar_ddls_bronze", "aplicar_ddls_bronze"
               },
               "Tarefas inesperadas no Job Bronze",
           )
-
           require(
               bronze.get("max_concurrent_runs") == 1,
               "Job Bronze deve permitir uma execucao por vez",
           )
-
           for field in ("schedule", "trigger", "continuous"):
-              require(
-                  field not in bronze,
-                  f"Job Bronze deve permanecer sem {field}",
-              )
-
+              require(field not in bronze, f"Job Bronze nao pode ter {field}")
           validate = bronze_tasks["validar_ddls_bronze"]
           apply = bronze_tasks["aplicar_ddls_bronze"]
-
           require(
               not validate.get("depends_on"),
-              "Validacao Bronze deve ser a tarefa inicial",
+              "Validacao Bronze deve ser tarefa inicial",
           )
-
           require(
               not validate["spark_python_task"].get("parameters"),
-              "Validacao Bronze nao pode receber parametros de aplicacao",
+              "Validacao Bronze nao pode aplicar dados",
           )
-
           require(
               apply.get("depends_on")
               == [{"task_key": "validar_ddls_bronze"}],
-              "Aplicacao deve depender da validacao Bronze",
+              "Dependencia Bronze alterada",
           )
-
           require(
               apply.get("run_if") == "ALL_SUCCESS",
-              "Aplicacao exige validacao bem-sucedida",
+              "Aplicacao Bronze exige validacao anterior",
           )
-
           require(
-              apply["spark_python_task"].get("parameters")
-              == ["--apply"],
+              apply["spark_python_task"].get("parameters") == ["--apply"],
               "Parametros inesperados na aplicacao Bronze",
           )
-
           for task in (validate, apply):
               require(
                   task.get("disabled") in (None, False),
-                  "Tarefa Bronze nao pode estar desabilitada",
+                  "Tarefa Bronze desabilitada",
               )
-
+              require(task.get("max_retries") == 0, "Retries Bronze proibidos")
               require(
-                  task.get("max_retries") == 0,
-                  "Retries Bronze devem permanecer desabilitados",
+                  not any(field in task for field in (
+                      "new_cluster", "existing_cluster_id", "job_cluster_key"
+                  )),
+                  "Tarefas Bronze devem usar Serverless",
               )
-
-              require(
-                  not any(
-                      field in task
-                      for field in (
-                          "new_cluster",
-                          "existing_cluster_id",
-                          "job_cluster_key",
-                      )
-                  ),
-                  "Tarefas Bronze devem usar o ambiente serverless",
-              )
-
               path = check_local_file(
                   owners[bronze_key],
                   task["spark_python_task"]["python_file"],
               )
-
               require(
                   path == root / "bronze_ddl_runner.py",
                   "Executor inesperado no Job Bronze",
               )
-
           print("BRONZE_JOB_SECURITY_VALIDATED")
 
-          # ==========================================
-          # 08 - VALIDADOR DE JOBS SILVER
-          # ==========================================
-          #
-          # Contrato obrigatorio para cada Silver:
-          #
-          # - Apenas uma tarefa de validacao
-          # - Apenas --check
-          # - Script versionado no Bundle
-          # - Sem publicacao automatica
-          # - Sem agendamento
-          # - Sem retries
-          # - Sem cluster dedicado
-          # - Ambiente Serverless v2
-          # - Concorrencia maxima de uma execucao
-          # - Timeouts definidos explicitamente
-          #
-          # ==========================================
-
-          def validate_silver_job(
+          # 6. Validador comum para as quatro Silvers e a Gold read-only.
+          def validate_read_only_job(
               key,
               expected_name,
               expected_task,
@@ -425,69 +262,41 @@ jobs:
           ):
               job = jobs[key]
               tasks = tasks_by_job[key]
-
               require(
                   job.get("name") == expected_name,
-                  f"Nome inesperado do Job {key}",
+                  f"Nome inesperado: {key}",
               )
-
               require(
                   job.get("max_concurrent_runs") == 1,
                   f"Concorrencia inesperada: {key}",
               )
-
               require(
-                  job.get("timeout_seconds")
-                  == expected_job_timeout,
-                  f"Timeout inesperado do Job {key}",
+                  job.get("timeout_seconds") == expected_job_timeout,
+                  f"Timeout de Job inesperado: {key}",
               )
-
               require(
                   (job.get("queue") or {}).get("enabled") is True,
-                  f"Fila deve estar habilitada: {key}",
+                  f"Fila nao habilitada: {key}",
               )
-
-              for field in (
-                  "schedule",
-                  "trigger",
-                  "continuous",
-              ):
-                  require(
-                      field not in job,
-                      f"Job Silver {key} nao pode ter {field}",
-                  )
-
-              require(
-                  "job_clusters" not in job,
-                  f"Clusters dedicados proibidos: {key}",
-              )
-
-              # --------------------------------------
-              # AMBIENTE SERVERLESS
-              # --------------------------------------
+              for field in ("schedule", "trigger", "continuous"):
+                  require(field not in job, f"Agendamento proibido: {key}/{field}")
+              require("job_clusters" not in job, f"Cluster dedicado proibido: {key}")
 
               environments = job.get("environments") or []
-
               require(
                   len(environments) == 1,
                   f"Quantidade inesperada de ambientes: {key}",
               )
-
               environment = environments[0]
-
               require(
-                  environment.get("environment_key")
-                  == expected_env,
+                  environment.get("environment_key") == expected_env,
                   f"Ambiente inesperado: {key}",
               )
-
               spec = environment.get("spec") or {}
-
               require(
                   str(spec.get("environment_version")) == "2",
                   f"Serverless v2 obrigatorio: {key}",
               )
-
               if expected_dependencies is None:
                   require(
                       not spec.get("dependencies"),
@@ -495,96 +304,57 @@ jobs:
                   )
               else:
                   require(
-                      spec.get("dependencies")
-                      == expected_dependencies,
+                      spec.get("dependencies") == expected_dependencies,
                       f"Dependencias incorretas: {key}",
                   )
-
-              # --------------------------------------
-              # TAREFA UNICA
-              # --------------------------------------
 
               require(
                   set(tasks) == {expected_task},
                   f"Tarefas inesperadas: {key}",
               )
-
               task = tasks[expected_task]
-
               require(
                   not task.get("depends_on"),
-                  f"Dependencias entre tarefas proibidas: {key}",
+                  f"Dependencias proibidas: {key}",
               )
-
               require(
                   task.get("disabled") in (None, False),
-                  f"Tarefa Silver desabilitada: {key}",
+                  f"Tarefa desabilitada: {key}",
               )
-
+              require(task.get("max_retries") == 0, f"Retries proibidos: {key}")
               require(
-                  task.get("max_retries") == 0,
-                  f"Retries proibidos: {key}",
-              )
-
-              require(
-                  task.get("timeout_seconds")
-                  == expected_task_timeout,
+                  task.get("timeout_seconds") == expected_task_timeout,
                   f"Timeout inesperado da tarefa: {key}",
               )
-
               require(
-                  task.get("environment_key")
-                  == expected_env,
+                  task.get("environment_key") == expected_env,
                   f"Ambiente da tarefa incorreto: {key}",
               )
-
               require(
-                  not any(
-                      field in task
-                      for field in (
-                          "new_cluster",
-                          "existing_cluster_id",
-                          "job_cluster_key",
-                      )
-                  ),
+                  not any(field in task for field in (
+                      "new_cluster", "existing_cluster_id", "job_cluster_key"
+                  )),
                   f"Cluster dedicado proibido: {key}",
               )
-
-              # --------------------------------------
-              # SCRIPT PYTHON
-              # --------------------------------------
-
               script = task.get("spark_python_task") or {}
-
               require(
                   script.get("source") == "WORKSPACE",
                   f"Origem do script incorreta: {key}",
               )
-
               require(
                   script.get("parameters") == ["--check"],
                   f"Somente --check permitido: {key}",
               )
-
               path = check_local_file(
-                  owners[key],
-                  script.get("python_file"),
+                  owners[key], script.get("python_file")
               )
-
               require(
                   path == root / expected_script,
                   f"Executor inesperado: {key}",
               )
+              print(f"READ_ONLY_JOB_VALIDATED: {expected_name}")
 
-              print(
-                  f"SILVER_JOB_VALIDATED: {expected_name}"
-              )
-
-          # ==========================================
-          # 09 - SILVER IBGE
-          # ==========================================
-
-          validate_silver_job(
+          validate_read_only_job(
               key="bairroiq_silver_ibge_check_job",
               expected_name="bairroiq-silver-ibge-check-job",
               expected_task="validar_silver_ibge",
@@ -594,14 +364,9 @@ jobs:
               expected_task_timeout=600,
               expected_dependencies=None,
           )
-
           print("SILVER_IBGE_JOB_SECURITY_VALIDATED")
 
-          # ==========================================
-          # 10 - SILVER SSP-SP
-          # ==========================================
-
-          validate_silver_job(
+          validate_read_only_job(
               key="bairroiq_silver_ssp_check_job",
               expected_name="bairroiq-silver-ssp-check-job",
               expected_task="validar_silver_ssp_spatial",
@@ -616,18 +381,11 @@ jobs:
                   "pyarrow==14.0.1",
               ],
           )
-
           print("SILVER_SSP_JOB_SECURITY_VALIDATED")
 
-          # ==========================================
-          # 11 - SILVER OBSERVASAMPA
-          # ==========================================
-
-          validate_silver_job(
+          validate_read_only_job(
               key="bairroiq_silver_observasampa_check_job",
-              expected_name=(
-                  "bairroiq-silver-observasampa-check-job"
-              ),
+              expected_name="bairroiq-silver-observasampa-check-job",
               expected_task="validar_silver_observasampa",
               expected_script="silver_observasampa_runner.py",
               expected_env="observasampa_serverless",
@@ -635,14 +393,9 @@ jobs:
               expected_task_timeout=1500,
               expected_dependencies=None,
           )
-
           print("OBSERVASAMPA_JOB_SECURITY_VALIDATED")
 
-          # ==========================================
-          # 12 - SILVER GEOSAMPA
-          # ==========================================
-
-          validate_silver_job(
+          validate_read_only_job(
               key="bairroiq_silver_geosampa_check_job",
               expected_name="bairroiq-silver-geosampa-check-job",
               expected_task="validar_silver_geosampa",
@@ -652,18 +405,36 @@ jobs:
               expected_task_timeout=1500,
               expected_dependencies=None,
           )
-
           print("GEOSAMPA_JOB_SECURITY_VALIDATED")
 
-          # ==========================================
-          # 13 - VALIDACAO FINAL
-          # ==========================================
-
-          print(
-              "Bundle validado estruturalmente: 6 Job(s)"
+          validate_read_only_job(
+              key="bairroiq_gold_wide_check_job",
+              expected_name="bairroiq-gold-wide-check-job",
+              expected_task="validar_gold_distritos_wide",
+              expected_script="gold_distritos_wide_v4_strict_check.py",
+              expected_env="gold_serverless",
+              expected_job_timeout=3600,
+              expected_task_timeout=3300,
+              expected_dependencies=None,
           )
+          print("GOLD_WIDE_JOB_SECURITY_VALIDATED")
+
+          print("Bundle validado estruturalmente: 7 Job(s)")
           print("BUNDLE_STATIC_VALIDATION_SUCCESS")
           PY
+
+      - name: Validate Gold v3 and v4 tests and runner syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_gold_distritos_wide_runner.py' -v
+          python -m unittest discover -s tests -p 'test_gold_distritos_wide_v4_runner.py' -v
+          python -m unittest discover -s tests -p 'test_gold_distritos_geo.py' -v
+          python -m py_compile \
+            barrioiq_pipeline/gold_distritos_wide_runner.py \
+            barrioiq_pipeline/gold_distritos_wide_v4_runner.py \
+            barrioiq_pipeline/gold_distritos_geo.py \
+            barrioiq_pipeline/gold_distritos_wide_v4_strict_check.py
 
       - name: Validate Bronze SQL files without applying
         run: python barrioiq_pipeline/bronze_ddl_runner.py

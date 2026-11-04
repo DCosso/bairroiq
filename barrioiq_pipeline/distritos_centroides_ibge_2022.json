@@ -1,0 +1,687 @@
+{
+  "tabela_destino": "workspace.gold.distritos_wide",
+  "fonte": "IBGE - Malha de Distritos 2022",
+  "arquivo_origem": "SP_distritos_CD2022.shp",
+  "sha256_malha": "8b444103cf01e1a9062f038b9c89bc27d6f75243b348dabf213dc8363e8c5684",
+  "codigo_municipio": "3550308",
+  "quantidade_distritos": 96,
+  "crs_origem": "EPSG:4674",
+  "crs_calculo": "EPSG:31983",
+  "crs_coordenadas": "EPSG:4326",
+  "metodologia": "Centroide geometrico calculado em projecao metrica, convertido para EPSG:4326. Se estiver fora do poligono, utiliza ponto representativo interno.",
+  "precisao_decimal": 8,
+  "distritos": [
+    {
+      "CD_DIST": 355030801,
+      "NM_DIST": "Água Rasa",
+      "latitude": -23.56688027,
+      "longitude": -46.57184881,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030802,
+      "NM_DIST": "Alto de Pinheiros",
+      "latitude": -23.54757719,
+      "longitude": -46.71188613,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030803,
+      "NM_DIST": "Anhanguera",
+      "latitude": -23.43046882,
+      "longitude": -46.79294444,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030804,
+      "NM_DIST": "Aricanduva",
+      "latitude": -23.57392461,
+      "longitude": -46.51567894,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030805,
+      "NM_DIST": "Artur Alvim",
+      "latitude": -23.54021204,
+      "longitude": -46.48583124,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030806,
+      "NM_DIST": "Barra Funda",
+      "latitude": -23.52125276,
+      "longitude": -46.67391737,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030807,
+      "NM_DIST": "Bela Vista",
+      "latitude": -23.5608187,
+      "longitude": -46.64733288,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030808,
+      "NM_DIST": "Belém",
+      "latitude": -23.53763634,
+      "longitude": -46.5947082,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030809,
+      "NM_DIST": "Bom Retiro",
+      "latitude": -23.5260069,
+      "longitude": -46.63682407,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030810,
+      "NM_DIST": "Brás",
+      "latitude": -23.54367921,
+      "longitude": -46.61749264,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030811,
+      "NM_DIST": "Brasilândia",
+      "latitude": -23.44867759,
+      "longitude": -46.68835593,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030812,
+      "NM_DIST": "Butantã",
+      "latitude": -23.5701649,
+      "longitude": -46.72619339,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030813,
+      "NM_DIST": "Cachoeirinha",
+      "latitude": -23.45439302,
+      "longitude": -46.66203011,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030814,
+      "NM_DIST": "Cambuci",
+      "latitude": -23.56433603,
+      "longitude": -46.61689715,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030815,
+      "NM_DIST": "Campo Belo",
+      "latitude": -23.62811225,
+      "longitude": -46.66790583,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030816,
+      "NM_DIST": "Campo Grande",
+      "latitude": -23.67453189,
+      "longitude": -46.68747617,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030817,
+      "NM_DIST": "Campo Limpo",
+      "latitude": -23.63583352,
+      "longitude": -46.76344063,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030818,
+      "NM_DIST": "Cangaiba",
+      "latitude": -23.49886195,
+      "longitude": -46.51867546,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030819,
+      "NM_DIST": "Capão Redondo",
+      "latitude": -23.66873412,
+      "longitude": -46.7804626,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030820,
+      "NM_DIST": "Carrão",
+      "latitude": -23.5511757,
+      "longitude": -46.53837429,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030821,
+      "NM_DIST": "Casa Verde",
+      "latitude": -23.50099974,
+      "longitude": -46.65734843,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030822,
+      "NM_DIST": "Cidade Ademar",
+      "latitude": -23.67381728,
+      "longitude": -46.65682697,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030823,
+      "NM_DIST": "Cidade Dutra",
+      "latitude": -23.72581222,
+      "longitude": -46.70199287,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030824,
+      "NM_DIST": "Cidade Lider",
+      "latitude": -23.56205612,
+      "longitude": -46.49121399,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030825,
+      "NM_DIST": "Cidade Tiradentes",
+      "latitude": -23.58472011,
+      "longitude": -46.40081578,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030826,
+      "NM_DIST": "Consolação",
+      "latitude": -23.54862642,
+      "longitude": -46.66007227,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030827,
+      "NM_DIST": "Cursino",
+      "latitude": -23.63117533,
+      "longitude": -46.62074811,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030828,
+      "NM_DIST": "Ermelino Matarazzo",
+      "latitude": -23.49128556,
+      "longitude": -46.48445933,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030829,
+      "NM_DIST": "Freguesia do Ó",
+      "latitude": -23.48628123,
+      "longitude": -46.69726758,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030830,
+      "NM_DIST": "Grajaú",
+      "latitude": -23.78969256,
+      "longitude": -46.66868356,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030831,
+      "NM_DIST": "Guaianases",
+      "latitude": -23.55639445,
+      "longitude": -46.40669342,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030832,
+      "NM_DIST": "Moema",
+      "latitude": -23.59604205,
+      "longitude": -46.66144019,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030833,
+      "NM_DIST": "Iguatemi",
+      "latitude": -23.6127224,
+      "longitude": -46.42666329,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030834,
+      "NM_DIST": "Ipiranga",
+      "latitude": -23.59172183,
+      "longitude": -46.60286779,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030835,
+      "NM_DIST": "Itaim Bibi",
+      "latitude": -23.6020829,
+      "longitude": -46.68540041,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030836,
+      "NM_DIST": "Itaim Paulista",
+      "latitude": -23.5033302,
+      "longitude": -46.38638174,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030837,
+      "NM_DIST": "Itaquera",
+      "latitude": -23.53389465,
+      "longitude": -46.45584374,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030838,
+      "NM_DIST": "Jabaquara",
+      "latitude": -23.65046896,
+      "longitude": -46.64591797,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030839,
+      "NM_DIST": "Jaçanã",
+      "latitude": -23.4621285,
+      "longitude": -46.57494286,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030840,
+      "NM_DIST": "Jaguara",
+      "latitude": -23.51105374,
+      "longitude": -46.74714455,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030841,
+      "NM_DIST": "Jaguaré",
+      "latitude": -23.54379313,
+      "longitude": -46.74871581,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030842,
+      "NM_DIST": "Jaraguá",
+      "latitude": -23.44572965,
+      "longitude": -46.7394772,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030843,
+      "NM_DIST": "Jardim Ângela",
+      "latitude": -23.71622176,
+      "longitude": -46.76779836,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030844,
+      "NM_DIST": "Jardim Helena",
+      "latitude": -23.48361737,
+      "longitude": -46.41292539,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030845,
+      "NM_DIST": "Jardim Paulista",
+      "latitude": -23.56638146,
+      "longitude": -46.66675661,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030846,
+      "NM_DIST": "Jardim São Luís",
+      "latitude": -23.68076701,
+      "longitude": -46.73940801,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030847,
+      "NM_DIST": "José Bonifácio",
+      "latitude": -23.56742475,
+      "longitude": -46.43253559,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030848,
+      "NM_DIST": "Lapa",
+      "latitude": -23.522581,
+      "longitude": -46.70589419,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030849,
+      "NM_DIST": "Liberdade",
+      "latitude": -23.56692698,
+      "longitude": -46.63178778,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030850,
+      "NM_DIST": "Limão",
+      "latitude": -23.49763018,
+      "longitude": -46.6758494,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030851,
+      "NM_DIST": "Mandaqui",
+      "latitude": -23.45944618,
+      "longitude": -46.64075541,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030852,
+      "NM_DIST": "Marsilac",
+      "latitude": -23.93511302,
+      "longitude": -46.70798,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030853,
+      "NM_DIST": "Mooca",
+      "latitude": -23.5613997,
+      "longitude": -46.59634235,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030854,
+      "NM_DIST": "Morumbi",
+      "latitude": -23.59622915,
+      "longitude": -46.70794944,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030855,
+      "NM_DIST": "Parelheiros",
+      "latitude": -23.8301458,
+      "longitude": -46.71648968,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030856,
+      "NM_DIST": "Pari",
+      "latitude": -23.52719684,
+      "longitude": -46.61741213,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030857,
+      "NM_DIST": "Parque do Carmo",
+      "latitude": -23.57604609,
+      "longitude": -46.46291733,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030858,
+      "NM_DIST": "Pedreira",
+      "latitude": -23.70688813,
+      "longitude": -46.64987429,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030859,
+      "NM_DIST": "Penha",
+      "latitude": -23.52319589,
+      "longitude": -46.52877287,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030860,
+      "NM_DIST": "Perdizes",
+      "latitude": -23.53869505,
+      "longitude": -46.68085321,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030861,
+      "NM_DIST": "Perus",
+      "latitude": -23.40797733,
+      "longitude": -46.74593309,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030862,
+      "NM_DIST": "Pinheiros",
+      "latitude": -23.56641002,
+      "longitude": -46.68864339,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030863,
+      "NM_DIST": "Pirituba",
+      "latitude": -23.48084062,
+      "longitude": -46.72612342,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030864,
+      "NM_DIST": "Ponte Rasa",
+      "latitude": -23.51567984,
+      "longitude": -46.49375485,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030865,
+      "NM_DIST": "Raposo Tavares",
+      "latitude": -23.59244177,
+      "longitude": -46.78547008,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030866,
+      "NM_DIST": "República",
+      "latitude": -23.54482108,
+      "longitude": -46.64101745,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030867,
+      "NM_DIST": "Rio Pequeno",
+      "latitude": -23.57115493,
+      "longitude": -46.75886138,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030868,
+      "NM_DIST": "Sacomã",
+      "latitude": -23.63069729,
+      "longitude": -46.59812925,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030869,
+      "NM_DIST": "Santa Cecília",
+      "latitude": -23.53188134,
+      "longitude": -46.65276249,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030870,
+      "NM_DIST": "Santana",
+      "latitude": -23.49990514,
+      "longitude": -46.63033021,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030871,
+      "NM_DIST": "Santo Amaro",
+      "latitude": -23.64234908,
+      "longitude": -46.70124097,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030872,
+      "NM_DIST": "São Lucas",
+      "latitude": -23.59461658,
+      "longitude": -46.54355993,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030873,
+      "NM_DIST": "São Mateus",
+      "latitude": -23.60018883,
+      "longitude": -46.48121199,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030874,
+      "NM_DIST": "São Miguel",
+      "latitude": -23.50113389,
+      "longitude": -46.44075982,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030875,
+      "NM_DIST": "São Rafael",
+      "latitude": -23.62820087,
+      "longitude": -46.4539818,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030876,
+      "NM_DIST": "Sapopemba",
+      "latitude": -23.60556023,
+      "longitude": -46.50953894,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030877,
+      "NM_DIST": "Saúde",
+      "latitude": -23.61447972,
+      "longitude": -46.64120481,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030878,
+      "NM_DIST": "Sé",
+      "latitude": -23.54755809,
+      "longitude": -46.63145431,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030879,
+      "NM_DIST": "Socorro",
+      "latitude": -23.68562935,
+      "longitude": -46.71385019,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030880,
+      "NM_DIST": "Tatuapé",
+      "latitude": -23.53862383,
+      "longitude": -46.56734628,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030881,
+      "NM_DIST": "Tremembé",
+      "latitude": -23.41734318,
+      "longitude": -46.58900537,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030882,
+      "NM_DIST": "Tucuruvi",
+      "latitude": -23.47567402,
+      "longitude": -46.60600281,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030883,
+      "NM_DIST": "Vila Andrade",
+      "latitude": -23.62622278,
+      "longitude": -46.72825009,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030884,
+      "NM_DIST": "Vila Curuçá",
+      "latitude": -23.509924,
+      "longitude": -46.41566814,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030885,
+      "NM_DIST": "Vila Formosa",
+      "latitude": -23.5677833,
+      "longitude": -46.54600366,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030886,
+      "NM_DIST": "Vila Guilherme",
+      "latitude": -23.50925059,
+      "longitude": -46.60569724,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030887,
+      "NM_DIST": "Vila Jacuí",
+      "latitude": -23.50257503,
+      "longitude": -46.46152365,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030888,
+      "NM_DIST": "Vila Leopoldina",
+      "latitude": -23.52921279,
+      "longitude": -46.73436205,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030889,
+      "NM_DIST": "Vila Maria",
+      "latitude": -23.5130144,
+      "longitude": -46.57772891,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030890,
+      "NM_DIST": "Vila Mariana",
+      "latitude": -23.58644774,
+      "longitude": -46.63589099,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030891,
+      "NM_DIST": "Vila Matilde",
+      "latitude": -23.53948188,
+      "longitude": -46.51818251,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030892,
+      "NM_DIST": "Vila Medeiros",
+      "latitude": -23.48874918,
+      "longitude": -46.57750379,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030893,
+      "NM_DIST": "Vila Prudente",
+      "latitude": -23.59255755,
+      "longitude": -46.57269551,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030894,
+      "NM_DIST": "Vila Sônia",
+      "latitude": -23.59937977,
+      "longitude": -46.73918272,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030895,
+      "NM_DIST": "São Domingos",
+      "latitude": -23.493431,
+      "longitude": -46.74718085,
+      "metodo": "CENTROIDE"
+    },
+    {
+      "CD_DIST": 355030896,
+      "NM_DIST": "Lajeado",
+      "latitude": -23.53369574,
+      "longitude": -46.40858406,
+      "metodo": "CENTROIDE"
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+
+# ============================================================
+# BAIRROIQ | GOLD DISTRITOS WIDE V4
+# JOB DE VALIDACAO ESTRITA
+# ============================================================
+#
+# Objetivo:
+#   Reconstruir a Gold a partir das fontes Silver
+#   e das coordenadas distritais oficiais do IBGE.
+#
+# Contrato:
+#   - 96 distritos oficiais
+#   - 254 colunas
+#   - Latitude e longitude em EPSG:4326
+#   - Dados e schema identicos a reconstrucao
+#   - Comentarios do Unity Catalog preservados
+#
+# Seguranca:
+#   - Exclusivamente --check
+#   - Sem DDL, DML, MERGE ou publicacao
+#   - Sem agendamento automatico
+#   - Sem retentativas automaticas
+#   - No maximo uma execucao simultanea
+#   - Databricks Serverless v2
+#
+# ============================================================
+
+resources:
+  jobs:
+    bairroiq_gold_wide_check_job:
+      name: bairroiq-gold-wide-check-job
+
+      description: >-
+        Valida estritamente a Gold Distritos Wide v4.
+        Reconstroi os indicadores territoriais e
+        imobiliarios a partir das seis fontes Silver,
+        incorpora os 96 centroides oficiais do IBGE
+        e compara integralmente o resultado com a
+        tabela workspace.gold.distritos_wide.
+        Exige 96 distritos, 254 colunas, schema e
+        dados identicos e metadados validos.
+        Falha em qualquer divergencia.
+        Execucao exclusivamente em modo leitura.
+
+      max_concurrent_runs: 1
+
+      timeout_seconds: 3600
+
+      queue:
+        enabled: true
+
+      # Sem schedule, trigger ou continuous.
+      # Execucao somente quando solicitada.
+
+      environments:
+        - environment_key: gold_serverless
+          spec:
+            environment_version: "2"
+
+      tasks:
+        - task_key: validar_gold_distritos_wide
+
+          description: >-
+            Executa o validador estrito da Gold v4
+            exclusivamente com --check.
+            Exige estado GEO_IDENTICAL.
+            Confere coordenadas, comentarios,
+            schema e integridade dos 96 distritos.
+            Retorna erro em caso de divergencia.
+            Nao permite publicacao.
+
+          environment_key: gold_serverless
+
+          timeout_seconds: 3300
+
+          max_retries: 0
+
+          spark_python_task:
+            python_file: ../gold_distritos_wide_v4_strict_check.py
+            source: WORKSPACE
+
+            parameters:
+              - "--check"
