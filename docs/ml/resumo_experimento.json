@@ -1,0 +1,208 @@
+{
+  "experimento": "BairroIQ - comparacao de algoritmos de clusterizacao",
+  "fonte": "workspace.gold.distritos_wide",
+  "sha256_dataset_de_entrada": "e7c477cd4be6f8f27f89ecc199582126eeb2b28de7b5c7ee920a4926751d3392",
+  "amostras": 96,
+  "campos_de_origem": {
+    "empregos": "obs_empregos_formais_no_municipio_total_86858d5b",
+    "roubos": "ssp_registros_12m_roubo_art_157_41b94022_por_100mil_hab",
+    "corredores_verdes": "geo_qtd_corredor_verde_por_10mil_hab",
+    "metro": "geo_qtd_metro_por_10mil_hab",
+    "onibus": "geo_qtd_onibus_por_10mil_hab",
+    "trem": "geo_qtd_trem_por_10mil_hab"
+  },
+  "dimensoes_modelo": [
+    "empregos",
+    "roubos",
+    "verde",
+    "mobilidade"
+  ],
+  "pre_processamento": "log1p empregos e roubos; z-score transporte e media; z-score final",
+  "k_explorados": [
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+  ],
+  "k_objetivo_produto": 10,
+  "min_grupo_para_selecao_exploratoria": 5,
+  "random_state": 42,
+  "subamostragem_sem_reposicao": "100x80%",
+  "versoes": {
+    "python": "3.13.5",
+    "numpy": "2.3.5",
+    "pandas": "2.2.3",
+    "scikit_learn": "1.8.0"
+  },
+  "metodos": {
+    "kmeans": {
+      "k_escolhido_exploratorio": 3,
+      "metricas_exploratorias": {
+        "silhouette": 0.426276,
+        "davies_bouldin": 0.973417,
+        "calinski_harabasz": 47.816765,
+        "menor_grupo": 7,
+        "maior_grupo": 67,
+        "maior_grupo_pct": 69.7917,
+        "distribuicao": [
+          7,
+          22,
+          67
+        ],
+        "elegivel_min_5": true,
+        "grupos_unitarios": 0,
+        "grupos_ate_2": 0
+      },
+      "estabilidade_exploratoria": {
+        "amostras": 100,
+        "fracao_amostra": 0.8,
+        "ari_mediana": 0.672243,
+        "ari_media": 0.703098,
+        "ari_p10": 0.493241,
+        "ari_p90": 1.0
+      },
+      "sensibilidade_exploratoria_ari": {
+        "empregos": 0.612793,
+        "roubos": 0.612793,
+        "verde": 0.334565,
+        "mobilidade": 0.716299
+      },
+      "cenario_produto_k10": {
+        "k": 10,
+        "metricas": {
+          "silhouette": 0.25847,
+          "davies_bouldin": 0.910293,
+          "calinski_harabasz": 42.64692,
+          "menor_grupo": 1,
+          "maior_grupo": 29,
+          "maior_grupo_pct": 30.2083,
+          "distribuicao": [
+            1,
+            2,
+            2,
+            2,
+            4,
+            7,
+            7,
+            19,
+            23,
+            29
+          ],
+          "elegivel_min_5": false,
+          "grupos_unitarios": 1,
+          "grupos_ate_2": 4
+        },
+        "estabilidade_subamostras": {
+          "amostras": 100,
+          "fracao_amostra": 0.8,
+          "ari_mediana": 0.695351,
+          "ari_media": 0.678958,
+          "ari_p10": 0.455341,
+          "ari_p90": 0.883783
+        },
+        "sensibilidade_retirada_dimensoes_ari": {
+          "empregos": 0.388334,
+          "roubos": 0.599617,
+          "verde": 0.554994,
+          "mobilidade": 0.742916
+        },
+        "aprovado_publicacao": false,
+        "motivos_pendencia": [
+          "clusters_com_menos_de_5_distritos",
+          "revisao_territorial_e_semantica_pendente"
+        ]
+      }
+    },
+    "ward": {
+      "k_escolhido_exploratorio": 3,
+      "metricas_exploratorias": {
+        "silhouette": 0.486909,
+        "davies_bouldin": 0.795872,
+        "calinski_harabasz": 40.451523,
+        "menor_grupo": 5,
+        "maior_grupo": 81,
+        "maior_grupo_pct": 84.375,
+        "distribuicao": [
+          5,
+          10,
+          81
+        ],
+        "elegivel_min_5": true,
+        "grupos_unitarios": 0,
+        "grupos_ate_2": 0
+      },
+      "estabilidade_exploratoria": {
+        "amostras": 100,
+        "fracao_amostra": 0.8,
+        "ari_mediana": 0.600098,
+        "ari_media": 0.565846,
+        "ari_p10": 0.208493,
+        "ari_p90": 0.939789
+      },
+      "sensibilidade_exploratoria_ari": {
+        "empregos": 0.862578,
+        "roubos": 0.853014,
+        "verde": 0.342353,
+        "mobilidade": 0.257465
+      },
+      "cenario_produto_k10": {
+        "k": 10,
+        "metricas": {
+          "silhouette": 0.249642,
+          "davies_bouldin": 0.970229,
+          "calinski_harabasz": 40.610295,
+          "menor_grupo": 1,
+          "maior_grupo": 27,
+          "maior_grupo_pct": 28.125,
+          "distribuicao": [
+            1,
+            2,
+            2,
+            5,
+            7,
+            8,
+            10,
+            11,
+            23,
+            27
+          ],
+          "elegivel_min_5": false,
+          "grupos_unitarios": 1,
+          "grupos_ate_2": 3
+        },
+        "estabilidade_subamostras": {
+          "amostras": 100,
+          "fracao_amostra": 0.8,
+          "ari_mediana": 0.632184,
+          "ari_media": 0.633358,
+          "ari_p10": 0.431932,
+          "ari_p90": 0.829444
+        },
+        "sensibilidade_retirada_dimensoes_ari": {
+          "empregos": 0.491049,
+          "roubos": 0.569503,
+          "verde": 0.328636,
+          "mobilidade": 0.390155
+        },
+        "aprovado_publicacao": false,
+        "motivos_pendencia": [
+          "clusters_com_menos_de_5_distritos",
+          "revisao_territorial_e_semantica_pendente"
+        ]
+      }
+    }
+  },
+  "concordancia_exploratoria_ari": 0.503305,
+  "concordancia_k10_ari": 0.398697,
+  "decisao": "PENDENTE_REVISAO_DOS_CRITERIOS_DE_NEGOCIO",
+  "alerta": "K=10 e objetivo do produto, nao prova de 10 agrupamentos naturais; Silhouette nao mede acuracia",
+  "alteracoes_gold": "NENHUMA",
+  "origem_da_execucao": "CSV_EXPORTADO_DO_DATABRICKS"
+}
