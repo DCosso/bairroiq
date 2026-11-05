@@ -1,0 +1,399 @@
+{
+  "versao_catalogo": "v3.0.0-candidato",
+  "status": "CANDIDATO_REVISAO_SEMANTICA",
+  "publicacao_gold_autorizada": false,
+  "fonte": "workspace.gold.distritos_wide",
+  "sha256_gold_esperado": "726091fefefa868fd5d0d2c6929b1d68c4849941f4c7510b4fee0d93a075d38b",
+  "modelo": {
+    "metodo": "kmeans",
+    "k": 9,
+    "densidade_winsor_p_inferior": 0.1,
+    "random_state": 42,
+    "n_init": 20
+  },
+  "resultados_observados": {
+    "silhouette": 0.194467,
+    "davies_bouldin": 1.334164,
+    "calinski_harabasz": null,
+    "ari_replicacoes_mediana": 0.470918,
+    "ari_replicacoes_p10": 0.387032,
+    "numero_distritos_silhouette_negativa": 3,
+    "menor_grupo": 6,
+    "maior_grupo": 22,
+    "comparativo_ward_k8": {
+      "ari_replicacoes_mediana": 0.629504,
+      "davies_bouldin": 1.202354
+    },
+    "status": "EXPERIMENTO_REAL_HISTORICO_NAO_E_SCORE_DE_QUALIDADE"
+  },
+  "revisoes_pendentes": [
+    "Verificar significado e granularidade geográfica de empregos formais (no municipio)",
+    "Validar em leitura humana os nove nomes, os integrantes e as ressalvas",
+    "Rever Mooca, Socorro e Lajeado: Silhouette individual negativo",
+    "Aprovar contrato de produto antes de qualquer Gold de consumo ou frontend publico",
+    "Reavaliar estabilidade moderada (ARI mediana 0,470918) como limitacao da metodologia",
+    "As fichas P04 e P07 devem ficar ocultas do frontend publico ate auditoria semantica especifica",
+    "Validar linguagem dos cartoes com usuarios; titulos sao descritivos, nao promessas de estilo de vida"
+  ],
+  "perfis": [
+    {
+      "cluster_id": 1,
+      "perfil_id": "kmeans-k09-p01",
+      "nome_provisorio": "Mais Praças, Vida Urbana",
+      "descricao_provisoria": "Distritos com maior oferta registrada de praças e corredores verdes por habitante e densidade populacional relativamente acima da mediana geral.",
+      "interesse_usuario": "Regiões com mais praças e corredores verdes cadastrados por habitante, e maior densidade de moradores.",
+      "ressalva_especifica": "Praças e corredores verdes cadastrados não equivalem a cobertura arbórea, qualidade ou proximidade a pé.",
+      "eixos_definidores": [
+        {
+          "eixo": "verde_lazer",
+          "direcao": "acima"
+        },
+        {
+          "eixo": "densidade",
+          "direcao": "acima"
+        }
+      ],
+      "distritos_cd_dist": [
+        355030801,
+        355030804,
+        355030829,
+        355030863,
+        355030872,
+        355030885,
+        355030891,
+        355030893,
+        355030895
+      ],
+      "qtd_distritos_esperada": 9,
+      "silhouette_mediana_exploratoria": 0.190336,
+      "casos_silhouette_negativa_exploratoria": 0,
+      "revisao_editorial": {
+        "titulo_para_cartao": "Mais Praças, Vida Urbana",
+        "texto_apoio": "Regiões com mais praças e corredores verdes cadastrados por habitante, e maior densidade de moradores.",
+        "disponivel_publicamente": false,
+        "pendencia_critica": null
+      }
+    },
+    {
+      "cluster_id": 2,
+      "perfil_id": "kmeans-k09-p02",
+      "nome_provisorio": "Praças em Regiões Menos Densas",
+      "descricao_provisoria": "Distritos com presença relativa elevada de praças e menor densidade populacional; a oferta relativa de serviços públicos tende a ser inferior.",
+      "interesse_usuario": "Mais praças e corredores verdes por habitante, com menor número de moradores por km².",
+      "ressalva_especifica": "Inclui Mooca e Socorro com Silhouette individual negativo; esta classificação merece atenção na comparação de distritos.",
+      "eixos_definidores": [
+        {
+          "eixo": "densidade",
+          "direcao": "abaixo"
+        },
+        {
+          "eixo": "verde_lazer",
+          "direcao": "acima"
+        }
+      ],
+      "distritos_cd_dist": [
+        355030802,
+        355030812,
+        355030853,
+        355030854,
+        355030856,
+        355030879,
+        355030888
+      ],
+      "qtd_distritos_esperada": 7,
+      "silhouette_mediana_exploratoria": 0.172471,
+      "casos_silhouette_negativa_exploratoria": 2,
+      "revisao_editorial": {
+        "titulo_para_cartao": "Praças em Regiões Menos Densas",
+        "texto_apoio": "Mais praças e corredores verdes por habitante, com menor número de moradores por km².",
+        "disponivel_publicamente": false,
+        "pendencia_critica": null
+      }
+    },
+    {
+      "cluster_id": 3,
+      "perfil_id": "kmeans-k09-p03",
+      "nome_provisorio": "Áreas Pouco Povoadas",
+      "descricao_provisoria": "Áreas de densidade populacional bastante reduzida e indicador de empregos formais inferior à referência relativa dos 96 distritos.",
+      "interesse_usuario": "Distritos com baixa concentração de moradores por km²; compare o acesso a transporte e serviços separadamente.",
+      "ressalva_especifica": "Baixa densidade não significa automaticamente tranquilidade, segurança, acessibilidade ou menor custo.",
+      "eixos_definidores": [
+        {
+          "eixo": "densidade",
+          "direcao": "abaixo"
+        },
+        {
+          "eixo": "atividade",
+          "direcao": "abaixo"
+        }
+      ],
+      "distritos_cd_dist": [
+        355030803,
+        355030830,
+        355030852,
+        355030855,
+        355030861,
+        355030881
+      ],
+      "qtd_distritos_esperada": 6,
+      "silhouette_mediana_exploratoria": 0.127722,
+      "casos_silhouette_negativa_exploratoria": 0,
+      "revisao_editorial": {
+        "titulo_para_cartao": "Áreas Pouco Povoadas",
+        "texto_apoio": "Distritos com baixa concentração de moradores por km²; compare o acesso a transporte e serviços separadamente.",
+        "disponivel_publicamente": false,
+        "pendencia_critica": null
+      }
+    },
+    {
+      "cluster_id": 4,
+      "perfil_id": "kmeans-k09-p04",
+      "nome_provisorio": "Menos Ocorrências Registradas",
+      "descricao_provisoria": "Conjunto com indicador de empregos formais mais baixo e menores taxas registradas de roubos e furtos na comparação estatística.",
+      "interesse_usuario": "O índice combinado de roubos e furtos registrados é menor neste grupo; cada taxa e distrito exigem análise própria.",
+      "ressalva_especifica": "O eixo conjunto de ocorrencias ficou relativamente abaixo da referencia. Isso não comprova que cada distrito tenha taxas menores em ambos os crimes; o titulo alternativo “Menos Roubos e Furtos” depende da auditoria de roubos e furtos separadamente. Registros nao medem risco individual.",
+      "eixos_definidores": [
+        {
+          "eixo": "atividade",
+          "direcao": "abaixo"
+        },
+        {
+          "eixo": "ocorrencias",
+          "direcao": "abaixo"
+        }
+      ],
+      "distritos_cd_dist": [
+        355030805,
+        355030811,
+        355030813,
+        355030818,
+        355030824,
+        355030825,
+        355030831,
+        355030833,
+        355030839,
+        355030842,
+        355030843,
+        355030844,
+        355030847,
+        355030851,
+        355030858,
+        355030864,
+        355030865,
+        355030875,
+        355030882,
+        355030884,
+        355030887,
+        355030892
+      ],
+      "qtd_distritos_esperada": 22,
+      "silhouette_mediana_exploratoria": 0.192579,
+      "casos_silhouette_negativa_exploratoria": 0,
+      "nome_alternativo_condicional": "Menos Roubos e Furtos",
+      "condicao_nome_alternativo": "Depende de auditoria de taxas individuais de roubos E furtos; nunca representa seguranca garantida.",
+      "revisao_editorial": {
+        "titulo_para_cartao": "Menos Ocorrências Registradas",
+        "texto_apoio": "O índice combinado de roubos e furtos registrados é menor neste grupo; cada taxa e distrito exigem análise própria.",
+        "disponivel_publicamente": false,
+        "pendencia_critica": "AUDITAR_MEDIANAS_ROUBOS_E_FURTOS_SEPARADAMENTE"
+      }
+    },
+    {
+      "cluster_id": 5,
+      "perfil_id": "kmeans-k09-p05",
+      "nome_provisorio": "Transporte Coletivo em Destaque",
+      "descricao_provisoria": "Distritos com indicadores elevados de equipamentos de transporte coletivo por habitante e maior intensidade de registros criminais e de atividade.",
+      "interesse_usuario": "Mais equipamentos de transporte coletivo por habitante, mas também mais ocorrências criminais registradas.",
+      "ressalva_especifica": "Equipamentos por habitante não medem tempo de deslocamento; registros criminais mais altos exigem contextualização.",
+      "eixos_definidores": [
+        {
+          "eixo": "mobilidade",
+          "direcao": "acima"
+        },
+        {
+          "eixo": "ocorrencias",
+          "direcao": "acima"
+        }
+      ],
+      "distritos_cd_dist": [
+        355030806,
+        355030809,
+        355030810,
+        355030848,
+        355030862,
+        355030871,
+        355030878
+      ],
+      "qtd_distritos_esperada": 7,
+      "silhouette_mediana_exploratoria": 0.345953,
+      "casos_silhouette_negativa_exploratoria": 0,
+      "revisao_editorial": {
+        "titulo_para_cartao": "Transporte Coletivo em Destaque",
+        "texto_apoio": "Mais equipamentos de transporte coletivo por habitante, mas também mais ocorrências criminais registradas.",
+        "disponivel_publicamente": false,
+        "pendencia_critica": null
+      }
+    },
+    {
+      "cluster_id": 6,
+      "perfil_id": "kmeans-k09-p06",
+      "nome_provisorio": "Muitos Moradores por Km²",
+      "descricao_provisoria": "Distritos de maior densidade populacional e menor número relativo de escolas públicas e UBS por habitante.",
+      "interesse_usuario": "Áreas mais adensadas, com menos escolas públicas e UBS cadastradas por habitante.",
+      "ressalva_especifica": "Serviços por habitante não indicam distância, capacidade de atendimento ou qualidade da rede.",
+      "eixos_definidores": [
+        {
+          "eixo": "servicos_publicos",
+          "direcao": "abaixo"
+        },
+        {
+          "eixo": "densidade",
+          "direcao": "acima"
+        }
+      ],
+      "distritos_cd_dist": [
+        355030807,
+        355030826,
+        355030845,
+        355030849,
+        355030860,
+        355030866,
+        355030869,
+        355030890
+      ],
+      "qtd_distritos_esperada": 8,
+      "silhouette_mediana_exploratoria": 0.190448,
+      "casos_silhouette_negativa_exploratoria": 0,
+      "revisao_editorial": {
+        "titulo_para_cartao": "Muitos Moradores por Km²",
+        "texto_apoio": "Áreas mais adensadas, com menos escolas públicas e UBS cadastradas por habitante.",
+        "disponivel_publicamente": false,
+        "pendencia_critica": null
+      }
+    },
+    {
+      "cluster_id": 7,
+      "perfil_id": "kmeans-k09-p07",
+      "nome_provisorio": "Empregos em Destaque",
+      "descricao_provisoria": "Distritos com valores relativamente elevados do indicador de empregos formais e menor quantidade relativa de equipamentos públicos.",
+      "interesse_usuario": "O indicador de empregos formais é elevado, mas ainda não sabemos se representa empregos localizados no distrito.",
+      "ressalva_especifica": "A fonte usa a expressao “no municipio”. Nao exibir “polos de emprego”, “mais oportunidades” ou equivalente sem comprovar a granularidade por distrito.",
+      "eixos_definidores": [
+        {
+          "eixo": "atividade",
+          "direcao": "acima"
+        },
+        {
+          "eixo": "servicos_publicos",
+          "direcao": "abaixo"
+        }
+      ],
+      "distritos_cd_dist": [
+        355030808,
+        355030814,
+        355030815,
+        355030816,
+        355030832,
+        355030834,
+        355030835,
+        355030841,
+        355030870,
+        355030877,
+        355030880,
+        355030889
+      ],
+      "qtd_distritos_esperada": 12,
+      "silhouette_mediana_exploratoria": 0.246161,
+      "casos_silhouette_negativa_exploratoria": 0,
+      "revisao_editorial": {
+        "titulo_para_cartao": "Empregos em Destaque",
+        "texto_apoio": "O indicador de empregos formais é elevado, mas ainda não sabemos se representa empregos localizados no distrito.",
+        "disponivel_publicamente": false,
+        "pendencia_critica": "AUDITAR_GRANULARIDADE_GEOGRAFICA_DE_EMPREGOS"
+      }
+    },
+    {
+      "cluster_id": 8,
+      "perfil_id": "kmeans-k09-p08",
+      "nome_provisorio": "Mais Moradores, Menos Transporte",
+      "descricao_provisoria": "Distritos com densidade populacional acima da referência e menor número relativo de equipamentos de metrô, ônibus e trem por habitante.",
+      "interesse_usuario": "Alta densidade de moradores e menor número relativo de equipamentos de transporte coletivo por habitante.",
+      "ressalva_especifica": "Menor quantidade por habitante não prova maior duração de viagens nem ausência de linhas próximas.",
+      "eixos_definidores": [
+        {
+          "eixo": "densidade",
+          "direcao": "acima"
+        },
+        {
+          "eixo": "mobilidade",
+          "direcao": "abaixo"
+        }
+      ],
+      "distritos_cd_dist": [
+        355030817,
+        355030819,
+        355030820,
+        355030821,
+        355030822,
+        355030828,
+        355030836,
+        355030837,
+        355030838,
+        355030846,
+        355030850,
+        355030859,
+        355030867,
+        355030868,
+        355030873,
+        355030876,
+        355030883,
+        355030894,
+        355030896
+      ],
+      "qtd_distritos_esperada": 19,
+      "silhouette_mediana_exploratoria": 0.177438,
+      "casos_silhouette_negativa_exploratoria": 1,
+      "revisao_editorial": {
+        "titulo_para_cartao": "Mais Moradores, Menos Transporte",
+        "texto_apoio": "Alta densidade de moradores e menor número relativo de equipamentos de transporte coletivo por habitante.",
+        "disponivel_publicamente": false,
+        "pendencia_critica": null
+      }
+    },
+    {
+      "cluster_id": 9,
+      "perfil_id": "kmeans-k09-p09",
+      "nome_provisorio": "Escolas e UBS por Habitante",
+      "descricao_provisoria": "Distritos com mais escolas públicas e UBS por habitante e densidade populacional abaixo da referência.",
+      "interesse_usuario": "Maior número relativo de escolas públicas e unidades básicas de saúde cadastradas por habitante.",
+      "ressalva_especifica": "Razões por habitante não comprovam vagas, qualidade, lotação, tempo de espera ou distância de casa.",
+      "eixos_definidores": [
+        {
+          "eixo": "servicos_publicos",
+          "direcao": "acima"
+        },
+        {
+          "eixo": "densidade",
+          "direcao": "abaixo"
+        }
+      ],
+      "distritos_cd_dist": [
+        355030823,
+        355030827,
+        355030840,
+        355030857,
+        355030874,
+        355030886
+      ],
+      "qtd_distritos_esperada": 6,
+      "silhouette_mediana_exploratoria": 0.308977,
+      "casos_silhouette_negativa_exploratoria": 0,
+      "revisao_editorial": {
+        "titulo_para_cartao": "Escolas e UBS por Habitante",
+        "texto_apoio": "Maior número relativo de escolas públicas e unidades básicas de saúde cadastradas por habitante.",
+        "disponivel_publicamente": false,
+        "pendencia_critica": null
+      }
+    }
+  ]
+}

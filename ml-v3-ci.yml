@@ -1,0 +1,97 @@
+name: BairroIQ - Catalogo ML v3 + Prioridades CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+    paths:
+      - "barrioiq_pipeline/ml_catalogo_perfis_v3.py"
+      - "barrioiq_pipeline/prioridade_roubos_furtos_v1.py"
+      - "barrioiq_pipeline/catalogo_perfis_v3_config.json"
+      - "barrioiq_pipeline/ml_perfis_territoriais_v2.py"
+      - "barrioiq_pipeline/requirements-ml.txt"
+      - "barrioiq_pipeline/distritos_centroides_ibge_2022.json"
+      - "tests/test_ml_catalogo_perfis_v3.py"
+      - "tests/test_prioridade_roubos_furtos_v1.py"
+      - "tests/test_editorial_perfis_v3.py"
+      - "docs/ml/revisao_editorial_perfis_v3.md"
+      - ".github/workflows/ml-v3-ci.yml"
+      - "docs/ml/contrato_preferencia_ocorrencias_v1.md"
+      - "docs/ml/execucao_prioridade_ocorrencias_v1.md"
+  pull_request:
+    branches: [main]
+    paths:
+      - "barrioiq_pipeline/ml_catalogo_perfis_v3.py"
+      - "barrioiq_pipeline/prioridade_roubos_furtos_v1.py"
+      - "barrioiq_pipeline/catalogo_perfis_v3_config.json"
+      - "barrioiq_pipeline/ml_perfis_territoriais_v2.py"
+      - "barrioiq_pipeline/requirements-ml.txt"
+      - "barrioiq_pipeline/distritos_centroides_ibge_2022.json"
+      - "tests/test_ml_catalogo_perfis_v3.py"
+      - "tests/test_prioridade_roubos_furtos_v1.py"
+      - "tests/test_editorial_perfis_v3.py"
+      - "docs/ml/revisao_editorial_perfis_v3.md"
+      - ".github/workflows/ml-v3-ci.yml"
+      - "docs/ml/contrato_preferencia_ocorrencias_v1.md"
+      - "docs/ml/execucao_prioridade_ocorrencias_v1.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ml-v3-tests:
+    name: Catalogo v3 - contrato, rastreabilidade e bloqueios
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned ML dependencies
+        run: |
+          python -m pip install --disable-pip-version-check \
+            -r barrioiq_pipeline/requirements-ml.txt
+      - name: Compile Python
+        run: |
+          python -m compileall -q \
+            barrioiq_pipeline/ml_catalogo_perfis_v3.py \
+            barrioiq_pipeline/prioridade_roubos_furtos_v1.py \
+            barrioiq_pipeline/ml_perfis_territoriais_v2.py \
+            tests/test_ml_catalogo_perfis_v3.py \
+            tests/test_prioridade_roubos_furtos_v1.py \
+            tests/test_editorial_perfis_v3.py
+      - name: Run contract and snapshot guard tests
+        run: |
+          python -m unittest discover -s tests \
+            -p 'test_ml_catalogo_perfis_v3.py' -v
+          python -m unittest discover -s tests \
+            -p 'test_prioridade_roubos_furtos_v1.py' -v
+          python -m unittest discover -s tests \
+            -p 'test_editorial_perfis_v3.py' -v
+      - name: Verify frozen config and no table writes
+        run: |
+          python - <<'PY'
+          import ast
+          import json
+          from pathlib import Path
+          scripts = [Path('barrioiq_pipeline/ml_catalogo_perfis_v3.py'),
+                     Path('barrioiq_pipeline/prioridade_roubos_furtos_v1.py')]
+          config = json.loads(Path('barrioiq_pipeline/catalogo_perfis_v3_config.json').read_text(encoding='utf-8'))
+          assert len(config['perfis']) == 9
+          assert config['status'] == 'CANDIDATO_REVISAO_SEMANTICA'
+          assert config['publicacao_gold_autorizada'] is False
+          p04 = next(p for p in config['perfis'] if p['cluster_id'] == 4)
+          assert p04['nome_alternativo_condicional'] == 'Menos Roubos e Furtos'
+          assert len(set(cd for x in config['perfis'] for cd in x['distritos_cd_dist'])) == 96
+          dangerous = {'saveAsTable', 'insertInto', 'save', 'writeTo', 'sql', 'execute'}
+          for script in scripts:
+              tree = ast.parse(script.read_text(encoding='utf-8'))
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.Attribute) and node.attr in dangerous:
+                      raise AssertionError(f'Dangerous writer/API invocation: {script} {node.attr}')
+          print('BAIRROIQ_ML_V3_NO_GOLD_WRITES_VERIFIED')
+          PY
