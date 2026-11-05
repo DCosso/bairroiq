@@ -65,3 +65,14 @@ Se autorizado depois: (1) calcula a prévia e hash real; (2) verifica os sete al
 - Falta de permissão ao catalog/schema: registrar a exceção e verificar autorização no Unity Catalog; **não** trocar arbitrariamente para outro catálogo.
 - Nova versão dos dados fonte: criar nova proposta de snapshot/versionamento, não ignorar o hash.
 - Nenhuma tabela deve ser criada automaticamente apenas por integrar a PR; o CD existente preserva os sete jobs.
+
+## Compatibilidade de escrita Serverless
+
+O escritor utiliza somente `DataFrameWriter.mode("append").saveAsTable(...)`,
+com validação do estado do destino imediatamente antes de cada operação.
+No caso de tabela ainda ausente, `append` pode criá-la; no caso de tabela
+preexistente, acrescenta somente o snapshot previamente auditado.
+O uso de `errorifexists` foi removido devido a uma falha já observada no
+workspace Serverless. Isto não implica suporte a escritores concorrentes.
+O primeiro uso real de `apply_snapshot` requer aprovação explícita e deve
+continuar separado do dry-run.

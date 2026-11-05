@@ -307,12 +307,17 @@ def check(spark) -> dict[str, Any]:
 
 
 def _write_one(spark, name: str, rows: list[dict[str, Any]], exists: bool) -> None:
+    """Cria/anexa somente em modo append (compatibilidade Serverless).
+
+    Reconfere o estado do destino logo antes da escrita. Nao garante
+    exclusao mutua: a operacao exige um unico escritor por snapshot.
+    """
+    table = TABLES[name]
+    still_exists = bool(spark.catalog.tableExists(table))
+    require(still_exists == exists,
+            f"{name}: existencia mudou apos o preflight; interromper escrita")
     frame = spark.createDataFrame(rows, schema=spark_schema(name))
-    writer = frame.write.format("delta")
-    if exists:
-        writer.mode("append").saveAsTable(TABLES[name])
-    else:
-        writer.mode("errorifexists").saveAsTable(TABLES[name])
+    frame.write.format("delta").mode("append").saveAsTable(table)
 
 
 def apply_snapshot(spark, *, confirmation: str, expected_hash: str) -> dict[str, Any]:

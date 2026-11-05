@@ -89,17 +89,12 @@ class FakeWriter:
         assert typ == "delta"
         return self
     def mode(self, name):
-        assert name in ("append", "errorifexists")
+        assert name == "append", "Only append is accepted in serverless-compatible writer"
         self._mode = name
         return self
     def saveAsTable(self, name):
-        assert self._mode
-        if self._mode == "errorifexists":
-            assert name not in self.spark.saved
-            self.spark.saved[name] = list(self.rows)
-        else:
-            assert name in self.spark.saved
-            self.spark.saved[name].extend(self.rows)
+        assert self._mode == "append"
+        self.spark.saved.setdefault(name, []).extend(self.rows)
         self.spark.operations.append(name)
 
 class FakeDF:
@@ -189,6 +184,37 @@ class TestDeltaContract(unittest.TestCase):
         self.assertFalse(fake.operations)
         self.assertTrue(all(x["action_if_applied"] == "APPEND_SNAPSHOT"
                             for x in result["tables"].values()))
+
+    def test_writer_creates_missing_table_with_append(self):
+        fake = FakeSpark()
+        name = "dim_snapshot"
+        records = self.payload["payloads"][name]
+        with patch.object(delta, "spark_schema", return_value=name):
+            delta._write_one(fake, name, records, exists=False)
+        self.assertEqual(fake.saved[delta.TABLES[name]], records)
+        self.assertEqual(fake.operations, [delta.TABLES[name]])
+
+    def test_writer_rejects_changed_existence_before_write(self):
+        fake = FakeSpark()
+        name = "dim_snapshot"
+        rows = self.payload["payloads"][name]
+        table = delta.TABLES[name]
+        fake.saved[table] = []  # Outro processo criou a tabela depois do preflight
+        with self.assertRaisesRegex(delta.DeltaContractError, "existencia mudou"):
+            delta._write_one(fake, name, rows, exists=False)
+        self.assertEqual(fake.operations, [])
+        fake.saved.pop(table)
+        with self.assertRaisesRegex(delta.DeltaContractError, "existencia mudou"):
+            delta._write_one(fake, name, rows, exists=True)
+        self.assertEqual(fake.operations, [])
+
+    def test_never_uses_errorifexists_save_mode(self):
+        import ast
+        source = MODULE.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
+            if isinstance(call.func, ast.Attribute) and call.func.attr == "mode":
+                self.assertEqual([arg.value for arg in call.args], ["append"])
 
     def test_apply_requires_confirmation_without_loading_data(self):
         fake = FakeSpark()

@@ -58,6 +58,7 @@ jobs:
           assert 'MATERIALIZAR_SNAPSHOT_INTERNO_SEM_PUBLICACAO' in source
           assert 'dim_snapshot' in source
           assert '.mode("overwrite")' not in source
+          assert '.mode("errorifexists")' not in source
           assert 'GRANT ' not in source.upper()
           assert 'DROP TABLE' not in source.upper()
           funcs = {x.name: x for x in tree.body if isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef))}
