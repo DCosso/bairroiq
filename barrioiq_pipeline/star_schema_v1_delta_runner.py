@@ -264,7 +264,9 @@ def _existing_rows(spark, name: str, snapshot_id: str) -> list[dict[str, Any]]:
 def _validate_table(spark, name: str) -> None:
     table = TABLES[name]
     current = spark.table(table)
-    observed = [(f.name, f.dataType.simpleString()) for f in current.schema]
+    # typeName() usa o nome canonico do Spark: LongType -> "long".
+    # simpleString() retorna "bigint" para LongType, criando falso desvio.
+    observed = [(f.name, f.dataType.typeName()) for f in current.schema]
     require(observed == STRUCTURES[name], f"Schema divergente da tabela {table}: {observed}")
     details = spark.sql(f"DESCRIBE DETAIL {table}").first().asDict()
     require(str(details.get("format", "")).lower() == "delta",
