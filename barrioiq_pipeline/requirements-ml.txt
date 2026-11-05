@@ -1,0 +1,6 @@
+# Ambiente de referencia para reproduzir as metricas versionadas.
+# Em Databricks Serverless, preferir ambiente isolado de desenvolvimento
+# e avaliar compatibilidade antes de mudar bibliotecas do workspace.
+numpy==2.3.5
+pandas==2.2.3
+scikit-learn==1.8.0
