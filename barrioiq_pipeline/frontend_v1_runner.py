@@ -1,17 +1,16 @@
 """BairroIQ | Contrato do frontend v1, apenas leitura.
 
-96 distritos oficiais, oito colunas visuais e metadados técnicos.
+96 distritos oficiais, seis colunas visuais e metadados técnicos.
 Os índices de empregos, mobilidade e ocorrências são relativos ao universo
 fixo de 96 distritos; não representam qualidade de vida ou risco individual.
 
 Nenhuma tabela/view/arquivo é criada por este módulo. O runner valida o
-snapshot Delta existente antes de combinar a Gold original para obter LED.
+snapshot Delta existente antes do consumo, sem ler métricas adicionais da Gold.
 """
 from __future__ import annotations
 
 import importlib.util
 import math
-import re
 from pathlib import Path
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
@@ -27,7 +26,6 @@ SNAPSHOT = (
     "726091fefefa868fd5d0d2c6929b1d68c4849941f4c7510b4fee0d93a075d38b"
 )
 STATUS = "PREVIA_DIMENSIONAL_NAO_PUBLICAVEL"
-LED_GOLD_FIELD = "obs_porcentagem_de_lampadas_led_na_iluminacao_p_a1e1d34b"
 METRICS = ("empregos", "roubos", "furtos", "metro", "onibus", "trem")
 ALL_METRICS = (
     "empregos", "roubos", "furtos", "metro", "onibus", "trem",
@@ -48,14 +46,12 @@ COUNTS = {
     "fato_distrito_perfil": 96, "fato_prioridade_ocorrencias": 96,
 }
 VISUAL_COLUMNS = (
-    "Distrito", "Empregos", "Roubos", "Segurança",
-    "Iluminação LED", "Arborização", "Mobilidade", "Cluster",
+    "Distrito", "Empregos", "Roubos", "Segurança", "Mobilidade", "Cluster",
 )
 TECH_COLUMNS = (
     "snapshot_id", "cd_dist", "distrito", "latitude", "longitude",
     "perfil_id", "cluster", "empregos", "roubos", "seguranca",
-    "iluminacao_led", "arborizacao", "mobilidade", "tipo_territorio",
-    "publicacao_autorizada",
+    "mobilidade", "tipo_territorio", "publicacao_autorizada",
 )
 METADATA = {
     "Empregos": {
@@ -72,16 +68,6 @@ METADATA = {
         "unidade": "índice relativo 0–100",
         "fonte": "SSP-SP / prioridade de ocorrências v1",
         "definicao": "100 menos índice médio dos percentis de roubos e furtos; não mede segurança geral.",
-    },
-    "Iluminação LED": {
-        "unidade": "porcentagem (%)",
-        "fonte": "ObservaSampa / Gold",
-        "definicao": "Percentual de lâmpadas LED na iluminação pública; período não uniformizado.",
-    },
-    "Arborização": {
-        "unidade": "não definida",
-        "fonte": "pendente",
-        "definicao": "NULL até homologação de indicador específico de arborização.",
     },
     "Mobilidade": {
         "unidade": "índice relativo 0–100",
@@ -149,7 +135,7 @@ def percentile_rank(series: pd.Series) -> pd.Series:
 
 def build_from_frames(frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
     """Transformação pura testável localmente; NÃO contém operações Spark/write."""
-    require(set(frames) == set(SOURCE_TABLES) | {"gold_led"},
+    require(set(frames) == set(SOURCE_TABLES),
             "Conjunto de fontes inesperado")
     for name, count in COUNTS.items():
         columns(frames[name], ("snapshot_id",), name)
@@ -216,20 +202,13 @@ def build_from_frames(frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
     pivot.columns.name = None
     pivot = numeric(pivot, METRICS, "pivot")
 
-    led = frames["gold_led"]
-    columns(led, ("CD_DIST", "led_pct"), "gold_led")
-    unique(led, ("CD_DIST",), 96, "gold_led")
-    led = numeric(led, ("led_pct",), "gold_led")
-    require(led.led_pct.between(0, 100).all(), "LED fora de 0–100")
-
     base = (d.merge(pivot, on=["snapshot_id", "CD_DIST"], how="inner", validate="one_to_one")
             .merge(fp[["snapshot_id", "CD_DIST", "perfil_sk"]],
                    on=["snapshot_id", "CD_DIST"], how="inner", validate="one_to_one")
             .merge(p[["snapshot_id", "perfil_sk", "perfil_id", "nome_exibicao_proposto"]],
                    on=["snapshot_id", "perfil_sk"], how="inner", validate="many_to_one")
             .merge(o[["snapshot_id", "CD_DIST", "indice_ordenacao_ocorrencias"]],
-                   on=["snapshot_id", "CD_DIST"], how="inner", validate="one_to_one")
-            .merge(led, on="CD_DIST", how="inner", validate="one_to_one"))
+                   on=["snapshot_id", "CD_DIST"], how="inner", validate="one_to_one"))
     require(len(base) == 96 and base.CD_DIST.nunique() == 96, "Join territorial perdeu ou duplicou distritos")
     require(base.perfil_id.nunique() == 9, "Distribuição perdeu clusters")
     code = base.perfil_id.str.extract(r"(p\d{2})$")[0].str.upper()
@@ -246,8 +225,6 @@ def build_from_frames(frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         "empregos": percentile_rank(base.empregos).map(lambda v: round_like_spark(v, 1)),
         "roubos": base.roubos.map(lambda v: round_like_spark(Decimal(str(v)) / 100, 2)),
         "seguranca": base.indice_ordenacao_ocorrencias.map(inverse_priority),
-        "iluminacao_led": base.led_pct.map(lambda v: round_like_spark(v, 1)),
-        "arborizacao": pd.Series([None] * len(base), index=base.index, dtype="object"),
         "mobilidade": ((percentile_rank(base.metro) + percentile_rank(base.onibus)
                         + percentile_rank(base.trem)) / 3).map(lambda v: round_like_spark(v, 1)),
         "tipo_territorio": "DISTRITO_IBGE",
@@ -255,16 +232,14 @@ def build_from_frames(frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
     })[list(TECH_COLUMNS)].sort_values("distrito").reset_index(drop=True)
     require(tech.cd_dist.nunique() == 96 and tech.cluster.nunique() == 9,
             "Chaves/cluster inválidos")
-    for field in ("empregos", "seguranca", "mobilidade", "iluminacao_led"):
+    for field in ("empregos", "seguranca", "mobilidade"):
         require(tech[field].notna().all() and tech[field].between(0, 100).all(),
                 f"{field}: fora de 0–100")
     require(tech.roubos.notna().all() and tech.roubos.ge(0).all(), "Roubos inválidos")
-    require(tech.arborizacao.isna().all() and tech.publicacao_autorizada.eq(False).all(),
-            "Arborização inventada ou publicação autorizada")
+    require(tech.publicacao_autorizada.eq(False).all(), "Publicação indevidamente autorizada")
     visual = tech.rename(columns={
         "distrito": "Distrito", "empregos": "Empregos", "roubos": "Roubos",
-        "seguranca": "Segurança", "iluminacao_led": "Iluminação LED",
-        "arborizacao": "Arborização", "mobilidade": "Mobilidade", "cluster": "Cluster",
+        "seguranca": "Segurança", "mobilidade": "Mobilidade", "cluster": "Cluster",
     })[list(VISUAL_COLUMNS)]
     require(len(visual) == 96 and list(visual.columns) == list(VISUAL_COLUMNS),
             "Formato visual errado")
@@ -274,13 +249,10 @@ def build_from_frames(frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
         "metadados": METADATA,
         "resumo": {
             "status": STATUS, "snapshot_id": SNAPSHOT, "distritos": len(visual),
-            "clusters": tech.cluster.nunique(), "indicadores_led_preenchidos": int(tech.iluminacao_led.notna().sum()),
-            "arborizacao_valores_preenchidos": int(tech.arborizacao.notna().sum()),
+            "clusters": tech.cluster.nunique(), "colunas_visuais": len(VISUAL_COLUMNS),
             "publicacao_autorizada": False, "alteracoes_gold": "NENHUMA",
             "escrita_executada": False,
             "nota": "Distrito = distrito administrativo oficial do IBGE; escalas diferentes entre colunas",
-            "led_origem": f"{CATALOG}.{SCHEMA}.distritos_wide:{LED_GOLD_FIELD}",
-            "led_versao_dado": "live_da_gold; nao incluída no hash dos 11 indicadores ML; fixar versão antes da materialização",
         },
     }
 
@@ -305,7 +277,4 @@ def run_from_spark(spark_session: Any) -> dict[str, Any]:
     for entity, table in SOURCE_TABLES.items():
         frames[entity] = (spark_session.table(f"{CATALOG}.{SCHEMA}.{table}")
                           .where(F.col("snapshot_id") == SNAPSHOT).toPandas())
-    frames["gold_led"] = (spark_session.table(f"{CATALOG}.{SCHEMA}.distritos_wide")
-                           .select("CD_DIST", F.col(LED_GOLD_FIELD).cast("double").alias("led_pct"))
-                           .toPandas())
     return build_from_frames(frames)
