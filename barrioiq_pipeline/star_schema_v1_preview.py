@@ -245,6 +245,13 @@ def run_from_spark(spark_session: Any) -> dict[str, Any]:
     cols = [*ml.IDENTIFIERS, *ml.SOURCE_FIELDS.values()]
     raw = spark_session.table(ml.SOURCE_TABLE).select(*cols).toPandas()
     raw = raw.rename(columns={source: alias for alias, source in ml.SOURCE_FIELDS.items()})
+
+    # A v3 resolve NM_DIST pelo CD_DIST usando a referencia oficial IBGE.
+    # A dimensao de distritos precisa usar exatamente a mesma convencao:
+    # nao compare o texto bruto da Gold com o nome ja canonizado na v3.
+    # Preserva todos os guardrails de codigo, hash e composicao do ML.
+    raw = ml.validate_and_prepare(raw)
+
     resultados = priority.build_priority(raw)
     return build_preview(raw, resultados, ml.SOURCE_FIELDS,
                          config["sha256_gold_esperado"])
