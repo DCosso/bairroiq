@@ -61,7 +61,6 @@ def fixture() -> dict[str, pd.DataFrame]:
         "dim_distrito": dist, "dim_perfil": perfis,
         "dim_indicador": ind, "fato_distrito_indicador": fi,
         "fato_distrito_perfil": fp, "fato_prioridade_ocorrencias": io,
-        "gold_led": pd.DataFrame({"CD_DIST": codes, "led_pct": np.linspace(90, 100, 96)}),
     }
 
 
@@ -72,10 +71,10 @@ class TestFrontendV1(unittest.TestCase):
     def build(self):
         return frontend.build_from_frames(self.f)
 
-    def test_exact_eight_visual_columns(self):
+    def test_exact_six_visual_columns(self):
         out = self.build()
         self.assertEqual(list(out["visual"].columns), list(frontend.VISUAL_COLUMNS))
-        self.assertEqual(out["visual"].shape, (96, 8))
+        self.assertEqual(out["visual"].shape, (96, 6))
 
     def test_technical_schema_and_types(self):
         out = self.build()
@@ -87,17 +86,24 @@ class TestFrontendV1(unittest.TestCase):
         self.assertEqual(out["tecnico"].cluster.nunique(), 9)
         self.assertTrue(out["tecnico"].cluster.str.startswith("P0").all())
 
-    def test_no_arborization_fabricated(self):
+    def test_unused_columns_removed(self):
         out = self.build()
-        self.assertTrue(out["visual"]["Arborização"].isna().all())
+        for col in ("Iluminação LED", "Arborização"):
+            self.assertNotIn(col, out["visual"].columns)
+            self.assertNotIn(col, frontend.METADATA)
+        for col in ("iluminacao_led", "arborizacao"):
+            self.assertNotIn(col, out["tecnico"].columns)
 
     def test_no_publication(self):
         out = self.build()
         self.assertTrue(out["tecnico"].publicacao_autorizada.eq(False).all())
         self.assertFalse(out["resumo"]["escrita_executada"])
 
-    def test_led_coverage(self):
-        self.assertEqual(self.build()["resumo"]["indicadores_led_preenchidos"], 96)
+    def test_exact_six_visual_contract(self):
+        self.assertEqual(frontend.VISUAL_COLUMNS, (
+            "Distrito", "Empregos", "Roubos", "Segurança", "Mobilidade", "Cluster",
+        ))
+        self.assertEqual(self.build()["resumo"]["colunas_visuais"], 6)
 
     def test_empregos_percent_rank_with_ties(self):
         series = pd.Series([5, 5, 8, 10], dtype=float)
@@ -116,10 +122,10 @@ class TestFrontendV1(unittest.TestCase):
         self.assertEqual(frontend.inverse_priority(1.15), 98.9)
         self.assertEqual(frontend.round_like_spark(1.25, 1), 1.3)
 
-    def test_led_lineage_explicit(self):
-        r = self.build()["resumo"]
-        self.assertIn("distritos_wide", r["led_origem"])
-        self.assertIn("fixar versão", r["led_versao_dado"])
+    def test_consumer_reads_only_frozen_star_tables(self):
+        self.assertEqual(set(frontend.SOURCE_TABLES), set(frontend.COUNTS))
+        self.assertEqual(set(self.f), set(frontend.SOURCE_TABLES))
+        self.assertNotIn("gold_led", self.f)
 
     def test_district_not_real_estate_neighborhood(self):
         self.assertTrue(self.build()["tecnico"].tipo_territorio.eq("DISTRITO_IBGE").all())
@@ -134,19 +140,20 @@ class TestFrontendV1(unittest.TestCase):
         with self.assertRaisesRegex(frontend.FrontendContractError, "público"):
             self.build()
 
-    def test_reject_duplicate_gold_led(self):
-        self.f["gold_led"].loc[0, "CD_DIST"] = self.f["gold_led"].loc[1, "CD_DIST"]
-        with self.assertRaisesRegex(frontend.FrontendContractError, "chave duplicada"):
+    def test_reject_unexpected_extra_gold_source(self):
+        self.f["gold_led"] = pd.DataFrame({"CD_DIST": [], "led_pct": []})
+        with self.assertRaisesRegex(frontend.FrontendContractError, "Conjunto de fontes inesperado"):
             self.build()
 
-    def test_reject_bad_led_range(self):
-        self.f["gold_led"].loc[0, "led_pct"] = 103.0
-        with self.assertRaisesRegex(frontend.FrontendContractError, "LED fora"):
-            self.build()
-
-    def test_reject_missing_led(self):
-        self.f["gold_led"].loc[0, "led_pct"] = None
+    def test_reject_missing_mobility_metric(self):
+        fi = self.f["fato_distrito_indicador"]
+        fi.loc[fi.indicador_sk.eq(f"{SID}|trem"), "valor_numerico"] = None
         with self.assertRaisesRegex(frontend.FrontendContractError, "nulo"):
+            self.build()
+
+    def test_reject_extra_source_table(self):
+        self.f["tabela_inesperada"] = pd.DataFrame()
+        with self.assertRaisesRegex(frontend.FrontendContractError, "Conjunto de fontes inesperado"):
             self.build()
 
     def test_reject_missing_fact(self):
