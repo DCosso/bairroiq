@@ -216,6 +216,106 @@ class TestDeltaContract(unittest.TestCase):
             if isinstance(call.func, ast.Attribute) and call.func.attr == "mode":
                 self.assertEqual([arg.value for arg in call.args], ["append"])
 
+    def test_existing_delta_long_bigint_alias_is_accepted(self):
+        """Spark LongType.typeName=long, mas simpleString=bigint."""
+        from types import SimpleNamespace
+
+        class FakeType:
+            def __init__(self, name):
+                self.name = name
+            def typeName(self):
+                return self.name
+            def simpleString(self):
+                return "bigint" if self.name == "long" else self.name
+
+        name = "dim_distrito"
+        fields = [SimpleNamespace(name=column, dataType=FakeType(dtype))
+                  for column, dtype in delta.STRUCTURES[name]]
+
+        class ExistingSpark:
+            def table(self, actual_table):
+                assert actual_table == delta.TABLES[name]
+                return SimpleNamespace(schema=fields)
+            def sql(self, statement):
+                assert statement == f"DESCRIBE DETAIL {delta.TABLES[name]}"
+                return SimpleNamespace(first=lambda: SimpleNamespace(
+                    asDict=lambda: {"format": "delta"}))
+
+        self.assertEqual(fields[1].dataType.simpleString(), "bigint")
+        self.assertEqual(fields[1].dataType.typeName(), "long")
+        delta._validate_table(ExistingSpark(), name)
+
+    def test_existing_delta_wrong_integer_width_is_rejected(self):
+        from types import SimpleNamespace
+
+        class FakeType:
+            def __init__(self, name):
+                self.name = name
+            def typeName(self):
+                return self.name
+
+        name = "dim_distrito"
+        fields = [SimpleNamespace(name=column,
+                                  dataType=FakeType("integer" if column == "CD_DIST" else dtype))
+                  for column, dtype in delta.STRUCTURES[name]]
+
+        class ExistingSpark:
+            def table(self, actual_table):
+                assert actual_table == delta.TABLES[name]
+                return SimpleNamespace(schema=fields)
+            def sql(self, statement):
+                return SimpleNamespace(first=lambda: SimpleNamespace(
+                    asDict=lambda: {"format": "delta"}))
+
+        with self.assertRaisesRegex(delta.DeltaContractError, "Schema divergente"):
+            delta._validate_table(ExistingSpark(), name)
+
+    def test_existing_delta_wrong_column_order_is_rejected(self):
+        from types import SimpleNamespace
+
+        class FakeType:
+            def __init__(self, name):
+                self.name = name
+            def typeName(self):
+                return self.name
+
+        name = "dim_distrito"
+        fields = [SimpleNamespace(name=column, dataType=FakeType(dtype))
+                  for column, dtype in reversed(delta.STRUCTURES[name])]
+
+        class ExistingSpark:
+            def table(self, actual_table):
+                return SimpleNamespace(schema=fields)
+            def sql(self, statement):
+                return SimpleNamespace(first=lambda: SimpleNamespace(
+                    asDict=lambda: {"format": "delta"}))
+
+        with self.assertRaisesRegex(delta.DeltaContractError, "Schema divergente"):
+            delta._validate_table(ExistingSpark(), name)
+
+    def test_existing_nondelta_table_is_rejected(self):
+        from types import SimpleNamespace
+
+        class FakeType:
+            def __init__(self, name):
+                self.name = name
+            def typeName(self):
+                return self.name
+
+        name = "dim_distrito"
+        fields = [SimpleNamespace(name=column, dataType=FakeType(dtype))
+                  for column, dtype in delta.STRUCTURES[name]]
+
+        class ExistingSpark:
+            def table(self, actual_table):
+                return SimpleNamespace(schema=fields)
+            def sql(self, statement):
+                return SimpleNamespace(first=lambda: SimpleNamespace(
+                    asDict=lambda: {"format": "parquet"}))
+
+        with self.assertRaisesRegex(delta.DeltaContractError, "nao e Delta"):
+            delta._validate_table(ExistingSpark(), name)
+
     def test_apply_requires_confirmation_without_loading_data(self):
         fake = FakeSpark()
         with patch.object(delta, "load_preview", side_effect=AssertionError("should not load")):
