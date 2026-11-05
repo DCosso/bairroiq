@@ -1,0 +1,75 @@
+name: BairroIQ - Star Schema Delta v1 CI
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+      - "fix/**"
+    paths:
+      - "barrioiq_pipeline/star_schema_v1_delta_runner.py"
+      - "barrioiq_pipeline/star_schema_v1_preview.py"
+      - "barrioiq_pipeline/requirements-ml.txt"
+      - "tests/test_star_schema_v1_delta_runner.py"
+      - ".github/workflows/star-schema-delta-v1-ci.yml"
+      - "docs/modelagem/star_schema_v1_delta_*.md"
+  pull_request:
+    branches: [main]
+    paths:
+      - "barrioiq_pipeline/star_schema_v1_delta_runner.py"
+      - "barrioiq_pipeline/star_schema_v1_preview.py"
+      - "barrioiq_pipeline/requirements-ml.txt"
+      - "tests/test_star_schema_v1_delta_runner.py"
+      - ".github/workflows/star-schema-delta-v1-ci.yml"
+      - "docs/modelagem/star_schema_v1_delta_*.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  delta-contract:
+    name: Delta v1 - immutable snapshots and write gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned ML dependencies
+        run: python -m pip install --disable-pip-version-check -r barrioiq_pipeline/requirements-ml.txt
+      - name: Compile
+        run: |
+          python -m py_compile \
+            barrioiq_pipeline/star_schema_v1_delta_runner.py \
+            tests/test_star_schema_v1_delta_runner.py
+      - name: Test immutable snapshots and explicit confirmation
+        run: python -m unittest discover -s tests -p 'test_star_schema_v1_delta_runner.py' -v
+      - name: Enforce no automatic writing or grants
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          script = Path('barrioiq_pipeline/star_schema_v1_delta_runner.py')
+          source = script.read_text(encoding='utf-8')
+          tree = ast.parse(source)
+          assert 'MATERIALIZAR_SNAPSHOT_INTERNO_SEM_PUBLICACAO' in source
+          assert 'dim_snapshot' in source
+          assert '.mode("overwrite")' not in source
+          assert 'GRANT ' not in source.upper()
+          assert 'DROP TABLE' not in source.upper()
+          funcs = {x.name: x for x in tree.body if isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef))}
+          assert set(('check', 'inspect', 'apply_snapshot', 'prepare_snapshot')).issubset(funcs)
+          assert not any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                         and n.func.id in ('apply_snapshot', '_write_one')
+                         for n in ast.walk(funcs['check']))
+          assert not any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                         and n.func.id == 'apply_snapshot'
+                         for n in ast.walk(funcs['inspect']))
+          resources = Path('barrioiq_pipeline/resources')
+          for path in resources.rglob('*.yml'):
+              assert 'star_schema_v1_delta_runner.py' not in path.read_text(encoding='utf-8')
+          print('BAIRROIQ_DELTA_V1_NO_AUTOMATIC_WRITES_VERIFIED')
+          PY
