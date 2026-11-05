@@ -195,6 +195,91 @@ class TestStarPreview(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "somente para /tmp"):
             mod.export_local(self.preview(), "relative/path")
 
+
+    def test_run_from_spark_normalizes_ibge_names(self):
+        """Regressao: a Gold e o catalogo v3 podem ter NM_DIST distintos.
+
+        O runner deve utilizar a referencia oficial por CD_DIST antes do
+        join dimensional, sem desligar a validacao de nomes do build_preview.
+        """
+        import json
+        import tempfile
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+
+        ml_path = ROOT / "barrioiq_pipeline/ml_perfis_territoriais_v2.py"
+        ml_spec = importlib.util.spec_from_file_location("barrioiq_v2_for_star_regression", str(ml_path))
+        real_ml = importlib.util.module_from_spec(ml_spec)
+        ml_spec.loader.exec_module(real_ml)
+
+        raw, base_results = fixture()
+        # Simula grafia da Gold divergente do cadastro oficial por CD_DIST.
+        raw.loc[0, "NM_DIST"] = "Nome bruto da Gold com grafia diferente"
+        codes = raw.CD_DIST.astype(int).tolist()
+        official_names = {code: f"Nome Oficial IBGE {index:03d}"
+                          for index, code in enumerate(codes)}
+        with tempfile.TemporaryDirectory() as temp:
+            reference = Path(temp) / "distritos_ibge.json"
+            reference.write_text(json.dumps({"distritos": [
+                {"CD_DIST": cd, "NM_DIST": nm}
+                for cd, nm in official_names.items()
+            ]}), encoding="utf-8")
+
+            # O ML aplica a referencia IBGE; essas sao as atribuicoes recebidas.
+            canonical = real_ml.validate_and_prepare(raw, reference=reference)
+            results = copy.deepcopy(base_results)
+            results["distritos_priorizados"]["NM_DIST"] = (
+                results["distritos_priorizados"]["CD_DIST"].map(official_names)
+            )
+            with self.assertRaisesRegex(ValueError, "Nomes de distrito divergentes"):
+                mod.build_preview(raw, results, SOURCES, HASH)
+
+            ml = SimpleNamespace(
+                IDENTIFIERS=real_ml.IDENTIFIERS,
+                SOURCE_FIELDS=SOURCES,
+                SOURCE_TABLE="workspace.gold.distritos_wide",
+                validate_and_prepare=lambda frame: real_ml.validate_and_prepare(
+                    frame, reference=reference
+                ),
+            )
+            v3 = SimpleNamespace(
+                load_v2=lambda: ml,
+                load_config=lambda config_path: {"sha256_gold_esperado": HASH},
+            )
+            priority = SimpleNamespace(
+                load_v3=lambda: v3,
+                build_priority=lambda frame: results,
+            )
+
+            gold_source = raw.rename(columns={
+                alias: source for alias, source in SOURCES.items()
+            })
+
+            class FakeSpark:
+                def table(self, name):
+                    if name != ml.SOURCE_TABLE:
+                        raise AssertionError("Tabela inesperada")
+                    return self
+                def select(self, *columns):
+                    assert set(columns) == set(gold_source.columns)
+                    return self
+                def toPandas(self):
+                    return gold_source.copy()
+
+            spec = SimpleNamespace(loader=Mock(exec_module=lambda module: None))
+            with patch.object(mod.importlib.util, "spec_from_file_location", return_value=spec), \
+                 patch.object(mod.importlib.util, "module_from_spec", return_value=priority), \
+                 patch.object(mod, "PRIORIDADE", Path(__file__)), \
+                 patch.object(mod, "CATALOGO_CONFIG", Path(__file__)):
+                preview = mod.run_from_spark(FakeSpark())
+
+            official = preview["tabelas"]["dim_distrito"].set_index("CD_DIST").NM_DIST
+            self.assertEqual(official.to_dict(), official_names)
+            self.assertEqual(preview["resumo"]["linhas"]["dim_distrito"], 96)
+            self.assertEqual(preview["resumo"]["alteracoes_gold"], "NENHUMA")
+            self.assertFalse(preview["resumo"]["publicacao_gold_autorizada"])
+            self.assertEqual(len(canonical), 96)
+
     def test_no_database_writers_in_script(self):
         tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
         forbidden = {"saveAsTable", "insertInto", "writeTo", "sql", "execute", "save", "createOrReplaceTempView"}
