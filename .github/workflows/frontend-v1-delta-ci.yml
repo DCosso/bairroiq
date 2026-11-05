@@ -1,0 +1,61 @@
+name: BairroIQ - Frontend Delta v1 CI
+
+on:
+  push:
+    branches: [main, 'feature/**', 'fix/**']
+    paths:
+      - 'barrioiq_pipeline/frontend_v1_delta_runner.py'
+      - 'barrioiq_pipeline/frontend_v1_runner.py'
+      - 'tests/test_frontend_v1_delta_runner.py'
+      - '.github/workflows/frontend-v1-delta-ci.yml'
+      - 'docs/consumo/frontend_v1_delta_*.md'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'barrioiq_pipeline/frontend_v1_delta_runner.py'
+      - 'barrioiq_pipeline/frontend_v1_runner.py'
+      - 'tests/test_frontend_v1_delta_runner.py'
+      - '.github/workflows/frontend-v1-delta-ci.yml'
+      - 'docs/consumo/frontend_v1_delta_*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  delta:
+    name: Frontend v1 - protected physical Delta snapshot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned project dependencies
+        run: python -m pip install --disable-pip-version-check -r barrioiq_pipeline/requirements-ml.txt
+      - name: Compile and test offline
+        run: |
+          python -m py_compile barrioiq_pipeline/frontend_v1_delta_runner.py tests/test_frontend_v1_delta_runner.py
+          python -m unittest discover -s tests -p 'test_frontend_v1_delta_runner.py' -v
+          python -m unittest discover -s tests -p 'test_frontend_v1_runner.py' -v
+      - name: Confirm manual-only writing and no grants
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          source = Path('barrioiq_pipeline/frontend_v1_delta_runner.py').read_text(encoding='utf-8')
+          tree = ast.parse(source)
+          functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+          assert {'check', 'inspect', 'apply_snapshot'}.issubset(functions)
+          for name in ('check', 'inspect'):
+              assert not any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                             and n.func.id in ('apply_snapshot', '_write_one')
+                             for n in ast.walk(functions[name]))
+          assert 'mode("overwrite")' not in source
+          assert 'mode("errorifexists")' not in source
+          assert 'GRANT ' not in source.upper()
+          assert 'DROP TABLE' not in source.upper()
+          for file in Path('barrioiq_pipeline/resources').rglob('*.yml'):
+              assert 'frontend_v1_delta_runner.py' not in file.read_text(encoding='utf-8')
+          print('BAIRROIQ_FRONTEND_DELTA_V1_MANUAL_ONLY_CI_PASS')
+          PY
