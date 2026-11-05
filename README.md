@@ -721,21 +721,4 @@ A reprodução completa **dos dados reais** exige acesso às fontes e tabelas do
 
 ---
 
-## Próximas etapas
-
-A evolução do BairroIQ prevê a conclusão da **aplicação web**, com exploração de distritos, filtros, mapas e comparativos explicáveis.
-
-Entre as próximas entregas estão:
-
-- **Interface geográfica:** navegação e comparação dos distritos administrativos de São Paulo.
-- **Exploração de perfis:** visualização dos nove agrupamentos territoriais com suas características e limitações.
-- **Preferências do usuário:** desenvolvimento de filtros para apoiar decisões conforme os indicadores disponíveis.
-- **Homologação dos indicadores:** revisão editorial, períodos de referência e regras de interpretação.
-- **Governança de acesso:** validação das permissões e dos mecanismos de disponibilização dos dados.
-- **Evolução temporal:** preparação de novos snapshots e atualização controlada dos modelos e indicadores.
-
-A disponibilização pública depende da conclusão das etapas de homologação, revisão de acesso e desenvolvimento da aplicação.
-
----
-
 **BairroIQ — Transformando dados urbanos em inteligência territorial.**
