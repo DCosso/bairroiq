@@ -1,15 +1,15 @@
-"""Provedor SQL Databricks do Streamlit integrado ao BairroIQ.
+"""Provedor do Atlas Sampa/BairroIQ a partir do Consumer V2 Delta auditado.
 
-Lê o Consumer V2 usando o módulo existente bairroiq.consumer_v2.
-Nenhuma função deste arquivo escreve dados, altera grants ou homologa snapshots.
-
-Dados candidatos somente podem ser consultados para prévia interna por meio
- de BAIRROIQ_INTERNAL_PREVIEW=true em um ambiente efetivamente privado, cujo
-acesso seja controlado no Databricks Apps e no Unity Catalog. A variável de
-ambiente NÃO substitui controles de acesso.
+Mantém o acesso SQL, OAuth e o contrato DataProvider da integração original.
+Somente leitura: não cria tabelas, não altera ACLs nem permite publicação.
+A prévia de snapshots não homologados requer opt-in explícito E ambiente privado
+com permissões apropriadas; a variável por si só não é autorização de acesso.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 import os
 import re
 from dataclasses import dataclass
@@ -17,16 +17,23 @@ from typing import Any, Mapping
 
 import pandas as pd
 
-from bairroiq.consumer_v2 import build_query, validate_frame
+from bairroiq.consumer_v2 import REQUIRED_COLUMNS, SNAPSHOT, validate_frame
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_DEFAULT_TABLE = "workspace.gold.bairroiq_frontend_v1"
+_SHA256 = re.compile(r"^[a-f0-9]{64}$")
+_DEFAULT_TABLE = "workspace.gold.bairroiq_frontend_v2"
+_CONTRACT_VERSION = "frontend_v2.0.0"
+_EXPECTED_SQL_SHA256 = "6eb594ea533fb033a392b6b70dede47731f008284ceb80f6be7bf1d988e7e7db"
+_AUDIT_COLUMNS = (
+    "versao_contrato", "payload_sha256", "sql_sha256", "materializado_em_utc",
+)
+_NUMERIC = {
+    "latitude", "longitude", "formal_jobs_score", "safety_score",
+    "mobility_score", "green_leisure_score", "public_services_score",
+    "densidade_hab_km2", "robberies_per_1000",
+}
 _HISTORY_COLUMNS = [
-    "neighborhood",
-    "year",
-    "formal_jobs_score",
-    "lighting_led",
-    "safety_score",
+    "neighborhood", "year", "formal_jobs_score", "lighting_led", "safety_score",
 ]
 
 
@@ -37,7 +44,7 @@ def _qualified_table(table_name: str) -> str:
     ):
         raise ValueError(
             "O nome da tabela deve usar identificadores SQL simples, "
-            "como workspace.gold.bairroiq_frontend_v1."
+            "como workspace.gold.bairroiq_frontend_v2."
         )
     return ".".join(f"`{part}`" for part in parts)
 
@@ -55,7 +62,7 @@ class DatabricksConfig:
         secrets: Mapping[str, Any] | None = None,
         environ: Mapping[str, str] | None = None,
     ) -> DatabricksConfig:
-        """Mantém a configuração usada pela versão integrada da Laís."""
+        """Configura o SQL Warehouse sem quebrar o app.yaml ou secrets local."""
         environment = os.environ if environ is None else environ
         secret_values: Mapping[str, Any] = {}
         if secrets is not None:
@@ -109,12 +116,58 @@ class DatabricksConfig:
         )
 
 
-class DatabricksDataProvider:
-    """Consulta o snapshot V2 e traduz os campos para o Streamlit.
+def _payload_sha256(df: pd.DataFrame) -> str:
+    """Mesmo algoritmo determinístico da materialização aprovada no Databricks."""
+    rows: list[list[object]] = []
+    for _, row in df.sort_values("cd_dist").iterrows():
+        values: list[object] = []
+        for column in REQUIRED_COLUMNS:
+            value = row[column]
+            if column == "cd_dist":
+                values.append(int(value))
+            elif column in _NUMERIC:
+                values.append(format(float(value), ".17g"))
+            elif column == "publicacao_autorizada":
+                values.append(bool(value))
+            else:
+                values.append(str(value))
+        rows.append(values)
+    encoded = json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
-    O OAuth da identidade do aplicativo permanece o padrão do Databricks Apps.
-    O token pessoal continua restrito ao desenvolvimento local.
-    """
+
+def _verify_audited_result(raw: pd.DataFrame, *, internal_preview: bool) -> pd.DataFrame:
+    """Valida 16 campos físicos e quatro metadados antes de expor ao Streamlit."""
+    missing = set(_AUDIT_COLUMNS).difference(raw.columns)
+    if missing:
+        raise ValueError(f"A tabela Delta V2 não contém auditoria: {sorted(missing)}")
+
+    for col in _AUDIT_COLUMNS:
+        if raw[col].isna().any() or raw[col].nunique() != 1:
+            raise ValueError(f"Auditoria incompleta ou não uniforme: {col}")
+
+    version = str(raw["versao_contrato"].iloc[0])
+    if version != _CONTRACT_VERSION:
+        raise ValueError(f"Versão de contrato não reconhecida: {version}")
+
+    sql_sha = str(raw["sql_sha256"].iloc[0])
+    if sql_sha != _EXPECTED_SQL_SHA256:
+        raise ValueError("Hash SQL não corresponde à consulta V2 materializada")
+
+    expected_payload = str(raw["payload_sha256"].iloc[0])
+    if not _SHA256.fullmatch(expected_payload):
+        raise ValueError("Hash SHA256 de auditoria malformado")
+
+    metrics = validate_frame(raw, internal_preview=internal_preview)
+    calculated_payload = _payload_sha256(metrics)
+    if calculated_payload != expected_payload:
+        raise ValueError("Hash do conteúdo divergente: snapshot alterado após a auditoria")
+
+    return metrics
+
+
+class DatabricksDataProvider:
+    """Consulta exclusivamente a tabela V2 física, sem recomputar percentis."""
 
     def __init__(self, config: DatabricksConfig) -> None:
         self._config = config
@@ -154,41 +207,44 @@ class DatabricksDataProvider:
                 return pd.DataFrame(cursor.fetchall(), columns=columns)
 
     def load_metrics(self) -> pd.DataFrame:
-        """Busca, valida e entrega indicadores reais do Consumer V2.
+        """Busca uma fotografia física V2 e confere o conteúdo contra seu hash.
 
-        Modo padrão: consulta somente linhas homologadas.
-        Modo de prévia: BAIRROIQ_INTERNAL_PREVIEW=true, exclusivamente com
-        acesso privado e previamente autorizado aos usuários do aplicativo.
+        Por padrão usa somente dados homologados.
+        BAIRROIQ_INTERNAL_PREVIEW=true apenas permite a consulta à fotografia
+        candidata quando a aplicação inteira tem acesso privado autorizado.
         """
         internal_preview = (
             os.getenv("BAIRROIQ_INTERNAL_PREVIEW", "false").strip().lower()
             == "true"
         )
-
-        # DatabricksConfig guarda a tabela já validada e com crases. O módulo
-        # consumer_v2 normaliza e valida novamente seu identificador SQL.
-        metrics_table = self._config.metrics_table.replace("`", "")
-        query = build_query(
-            metrics_table=metrics_table,
-            internal_preview=internal_preview,
-        )
+        gate = "" if internal_preview else "AND publicacao_autorizada IS TRUE"
+        query = f"""
+            SELECT
+                snapshot_id, cd_dist, neighborhood, latitude, longitude,
+                formal_jobs_score, safety_score, mobility_score,
+                green_leisure_score, public_services_score,
+                densidade_hab_km2, robberies_per_1000, perfil_id,
+                cluster, tipo_territorio, publicacao_autorizada,
+                versao_contrato, payload_sha256, sql_sha256, materializado_em_utc
+            FROM {self._config.metrics_table}
+            WHERE snapshot_id = '{SNAPSHOT}'
+              {gate}
+            ORDER BY cd_dist
+        """
         raw = self._read_query(query)
         if raw.empty:
             raise ValueError(
-                "Consulta V2 sem registros. Confira o snapshot, as permissões "
-                "e publicacao_autorizada. Prévia não homologada somente em "
-                "ambiente privado e com BAIRROIQ_INTERNAL_PREVIEW=true."
+                "Consumer V2 físico sem registros acessíveis. O snapshot é interno "
+                "e não homologado; confira identidade, permissões e liberação "
+                "para prévia estritamente privada."
             )
 
-        metrics = validate_frame(raw, internal_preview=internal_preview)
-
-        # Dois aliases conservam os pontos de entrada do frontend atual.
-        # robbery_index mantém a taxa real de roubos por mil habitantes;
-        # NÃO é uma pontuação de segurança nem deve ser multiplicado por 10.
+        metrics = _verify_audited_result(raw, internal_preview=internal_preview)
+        # Aliases usados pela interface existente; sem recalcular a segurança.
         metrics["district_code"] = metrics["cd_dist"]
         metrics["robbery_index"] = metrics["robberies_per_1000"]
         return metrics
 
     def load_history(self) -> pd.DataFrame:
-        """Não inventa série histórica a partir de um único snapshot."""
+        """Não transforma snapshot em histórico anual fictício."""
         return pd.DataFrame(columns=_HISTORY_COLUMNS)
