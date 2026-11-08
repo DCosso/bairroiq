@@ -22,6 +22,7 @@ from bairroiq.comparison_v2 import (
     selected_cluster_descriptions,
 )
 from bairroiq.map_data import DistrictMapService
+from bairroiq.ux_labels import nome_perfil
 from bairroiq.provider import load_metrics
 from bairroiq.scoring import SCENARIO_SCORER
 from bairroiq.ui import SCENARIO_DEFAULTS, render_header, theme_palette
@@ -121,10 +122,9 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-st.title("Analytics / Comparação")
+st.title("Compare seus distritos")
 st.caption(
-    "Compare distritos, indicadores territoriais e perfis do K-Means "
-    "do snapshot selecionado. Não há série histórica nessa fonte."
+    "Descubra como diferentes regiões combinam com aquilo que é importante para você."
 )
 
 palette = theme_palette()
@@ -157,7 +157,7 @@ with selection_col:
         placeholder="Selecione de dois a cinco distritos",
     )
 with focus_col:
-    valid_focus_modes = ["Visão geral", "Empregos formais", "Perfis ML"]
+    valid_focus_modes = ["Visão geral", "Empregos formais", "Estilos de região"]
     if st.session_state.get("comparison-focus-mode") not in (*valid_focus_modes, None):
         st.session_state["comparison-focus-mode"] = "Visão geral"
     focus_mode = st.radio(
@@ -193,9 +193,8 @@ if real_v2:
     else:
         dimensions = metric_options
     st.caption(
-        "Empregos formais, densidade e roubos são informações descritivas. "
-        "Somente Verde e lazer, Segurança, Mobilidade e Serviços públicos "
-        "entram na aderência personalizada."
+        "O resultado leva em conta suas preferências de verde e lazer, segurança, "
+        "mobilidade e serviços públicos. Outros detalhes ajudam a conhecer cada região."
     )
 else:
     # O modo sample permanece identificado; seus dados nunca são apresentados
@@ -211,7 +210,7 @@ else:
     )
     cluster_summary = None
     radar_dimensions = metric_options
-    st.warning("Modo demonstrativo: conecte o Consumer V2 para comparar clusters reais.")
+    st.warning("Você está conhecendo uma versão de demonstração.")
 
 leader = comparison.iloc[0]
 average_score = float(comparison["priority_score"].mean())
@@ -260,9 +259,8 @@ for position, (_, row) in enumerate(comparison.iterrows(), start=1):
     else:
         insight = '<div class="duel-item">Nenhuma prioridade ativa.</div>'
     profile_html = (
-        f'<div class="duel-item"><strong>Perfil K-Means:</strong> '
-        f'{escape(str(row["cluster"]))}</div>'
-        f'<div class="duel-item"><small>{escape(str(row["perfil_id"]))}</small></div>'
+        f'<div class="duel-item"><strong>Estilo da região:</strong> '
+        f'{escape(nome_perfil(row["cluster"]))}</div>'
         if real_v2 else ""
     )
     card_html = (
@@ -313,15 +311,16 @@ styled_table = (
 st.table(styled_table, width="stretch", hide_index=True)
 
 if real_v2:
-    with st.expander("Perfis K-Means e indicadores descritivos", expanded=False):
+    with st.expander("Mais detalhes sobre os distritos", expanded=False):
         descriptive = comparison[[
-            "neighborhood", "cluster", "perfil_id", "densidade_hab_km2",
+            "neighborhood", "cluster", "densidade_hab_km2",
             "robberies_per_1000",
         ]].rename(columns={
             "neighborhood": "Distrito", "cluster": "Perfil territorial",
-            "perfil_id": "Identificador ML", "densidade_hab_km2": "Habitantes por km²",
+            "densidade_hab_km2": "Habitantes por km²",
             "robberies_per_1000": "Roubos por 1.000 habitantes",
         })
+        descriptive["Perfil territorial"] = descriptive["Perfil territorial"].map(nome_perfil)
         st.dataframe(
             descriptive,
             hide_index=True,
@@ -377,7 +376,7 @@ chart_data = comparison.melt(
 metric_labels = {field: name for name, field in dimensions.items()}
 chart_data["metric"] = chart_data["metric"].map(metric_labels)
 
-with st.expander("Gráficos comparativos · indicadores, radar e clusters ML", expanded=False):
+with st.expander("Explore os gráficos: indicadores, comparações e estilos de região", expanded=False):
     highlighted = st.selectbox(
         "Destacar distrito nos gráficos", options=["Nenhum", *selected],
         key="comparison-highlight-neighborhood",
@@ -435,11 +434,12 @@ with st.expander("Gráficos comparativos · indicadores, radar e clusters ML", e
 
     with cluster_column:
         with st.container(key="comparison-chart-cluster", border=True):
-            st.markdown("#### Perfis territoriais K-Means")
+            st.markdown("#### Estilos de região")
             if not real_v2 or cluster_summary is None:
-                st.info("Os perfis reais do K-Means só estão disponíveis no Consumer V2.")
+                st.info("Os estilos de região estarão disponíveis quando as informações forem carregadas.")
             else:
-                # P01...P09 são categorias, nunca valores numéricos/ranking.
+                # Códigos internos mantidos apenas como chave categórica, nunca como rótulo.
+                nomes_perfis = cluster_summary["cluster"].map(nome_perfil).tolist()
                 clusters_plot = px.bar(
                     cluster_summary,
                     x="codigo", y="aderencia_media", color="destaque",
@@ -448,22 +448,27 @@ with st.expander("Gráficos comparativos · indicadores, radar e clusters ML", e
                         "Com distrito selecionado": "#2d8a6e",
                         "Outros perfis": "#8b96a7",
                     },
-                    custom_data=["cluster", "perfil_id", "distritos_no_perfil"],
-                    labels={"codigo": "Perfil K-Means", "aderencia_media": "Aderência média (0–100)",
+                    custom_data=["cluster", "distritos_no_perfil"],
+                    labels={"codigo": "Estilo de região", "aderencia_media": "Combina com suas escolhas (0–100)",
                             "destaque": "Seleção"},
                 )
-                clusters_plot.update_traces(hovertemplate=(
-                    "<b>%{customdata[0]}</b><br>"
-                    "Identificador: %{customdata[1]}<br>"
-                    "Distritos no perfil: %{customdata[2]}<br>"
-                    "Aderência média ao cenário: %{y:.1f}/100"
-                    "<extra></extra>"
-                ))
+                clusters_plot.update_traces(
+                    customdata=cluster_summary[["distritos_no_perfil"]].to_numpy(),
+                    hovertemplate=(
+                        "Distritos no perfil: %{customdata[0]}<br>"
+                        "Combina com suas escolhas: %{y:.1f}/100"
+                        "<extra></extra>"
+                    ),
+                )
                 clusters_plot.update_layout(
-                    height=340, margin={"r": 10, "t": 12, "l": 8, "b": 82},
+                    height=420, margin={"r": 10, "t": 12, "l": 8, "b": 150},
                     paper_bgcolor=palette["surface"], plot_bgcolor=palette["surface"],
                     font={"color": palette["ink"], "size": 11},
-                    xaxis={"type": "category", "tickangle": -30},
+                    xaxis={"type": "category", "tickangle": -45,
+                           "tickmode": "array",
+                           "tickvals": cluster_summary["codigo"].tolist(),
+                           "ticktext": nomes_perfis,
+                           "tickfont": {"size": 9}, "automargin": True},
                     yaxis={"range": [0, 100], "gridcolor": palette["line"]},
                     legend={"orientation": "h", "y": -0.35, "font": {"size": 10}},
                 )
@@ -472,19 +477,15 @@ with st.expander("Gráficos comparativos · indicadores, radar e clusters ML", e
                 )
 
     if real_v2:
-        st.caption("**Perfis dos distritos selecionados:** " + " · ".join(
+        st.caption("**Estilos dos distritos escolhidos:** " + " · ".join(
             selected_cluster_descriptions(scored, selected)
         ))
         st.caption(
-            "As barras indicam a aderência média ao cenário atual dos distritos "
-            "de cada perfil. Não são notas do K-Means nem uma hierarquia entre clusters. "
-            "Os perfis são classificações exploratórias do snapshot candidato."
+            "As barras mostram quanto, em média, os distritos de cada estilo "
+            "combinam com suas preferências. Não representam uma nota de qualidade de vida."
         )
 
 if real_v2:
-    st.caption(
-        "Fonte: Consumer V2 do BairroIQ; classificação territorial exploratória "
-        "K-Means. Snapshot candidato, sem autorização de publicação pública."
-    )
+    st.caption("Quer saber de onde vêm as informações? Consulte a página Fontes.")
 else:
-    st.caption("Ambiente demonstrativo: os dados exibidos não são indicadores reais da cidade.")
+    st.caption("Você está visualizando informações de exemplo.")
