@@ -101,9 +101,9 @@ def _apply_search_suggestion() -> None:
 
 
 def _ensure_neighborhood_selection(neighborhoods: list[str]) -> None:
-    defaults = [name for name in ("Vila Mariana", "Pinheiros") if name in neighborhoods]
+    # Nenhuma seleção significa exibir todos os distritos elegíveis no mapa.
     if "selected-neighborhoods" not in st.session_state:
-        st.session_state["selected-neighborhoods"] = defaults or neighborhoods[:2]
+        st.session_state["selected-neighborhoods"] = []
     st.session_state["selected-neighborhoods"] = [
         name for name in st.session_state["selected-neighborhoods"]
         if name in neighborhoods
@@ -1522,16 +1522,16 @@ def render_header(active_page: str) -> None:
                     on_change=_apply_search_suggestion,
                 )
                 with neighborhood_filter:
-                    with st.popover("Quick Bairros ▾", width="stretch"):
+                    with st.popover("Escolher distritos ▾", width="stretch"):
                         st.multiselect(
                             "Distritos para analisar",
                             options=neighborhoods,
                             key="selected-neighborhoods",
-                            placeholder="Selecione os bairros",
+                            placeholder="Selecione os distritos",
                             on_change=_sync_comparison_selection,
                         )
                 with data_filter:
-                    with st.popover("Quick Filtros ▾", width="stretch"):
+                    with st.popover("Filtrar por interesses ▾", width="stretch"):
                         st.multiselect(
                             "Indicadores mínimos",
                             options=list(DISTRICT_FILTERS),
