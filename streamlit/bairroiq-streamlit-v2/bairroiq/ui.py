@@ -1557,7 +1557,4 @@ def render_header(active_page: str) -> None:
                 + ", ".join(missing)
             )
             st.stop()
-        st.caption(
-            "Consumer V2: comparação territorial entre distritos. "
-            "Esta fotografia não representa uma série histórica."
-        )
+
