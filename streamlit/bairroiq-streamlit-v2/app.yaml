@@ -1,0 +1,17 @@
+# No Databricks Apps, adicione também um recurso SQL Warehouse chamado
+# "sql-warehouse" com permissão "Can use". A identidade do app precisa de
+# USE CATALOG, USE SCHEMA e SELECT na tabela workspace.gold.bairroiq_frontend_v1.
+command:
+  - streamlit
+  - run
+  - app.py
+
+env:
+  - name: BAIRROIQ_DATA_PROVIDER
+    value: databricks
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+  - name: DATABRICKS_METRICS_TABLE
+    value: workspace.gold.bairroiq_frontend_v1
+  - name: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+    value: "false"
