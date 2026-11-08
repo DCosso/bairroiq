@@ -14,6 +14,7 @@ import plotly.express as px
 import streamlit as st
 
 from bairroiq.provider import load_metrics
+from bairroiq.ux_labels import nome_perfil
 from bairroiq.scoring import SCENARIO_SCORER
 from bairroiq.ui import SCENARIO_DEFAULTS, render_header, theme_palette
 
@@ -36,7 +37,7 @@ selected_names = st.session_state.get(
 profiles = scored[scored["neighborhood"].isin(selected_names)].copy()
 
 if profiles.empty:
-    st.info("Selecione distritos em Quick Bairros para visualizar os perfis.")
+    st.info("Selecione distritos em Quick Distritos para visualizar os perfis.")
     st.stop()
 
 # Os dados reais V2 são identificados pelo contrato, não por uma flag manual.
@@ -58,9 +59,9 @@ if is_real_v2:
     }
     all_profile_count = metrics["perfil_id"].nunique()
     st.caption(
-        f"Perfis territoriais exploratórios do K-Means: "
-        f"{all_profile_count} perfis no conjunto de 96 distritos. "
-        "Os grupos não constituem classificação oficial de qualidade de vida."
+        f"Conheça {all_profile_count} estilos de região em São Paulo. "
+        "Cada estilo reúne distritos com características parecidas e ajuda você "
+        "a explorar novas opções. Nenhum estilo é melhor que outro por definição."
     )
 else:
     # Mantém compatibilidade com os dados ilustrativos usados no desenvolvimento.
@@ -97,22 +98,20 @@ with st.container(key="profiles-grid"):
         with columns[index % len(columns)]:
             if leading_dimension:
                 leading_summary = (
-                    f'<p>Indicador de destaque: {escape(leading_dimension[0])}</p>'
-                    f'<p>Índice relativo: {float(row[leading_dimension[1]]):.1f}/100</p>'
+                    f'<p>Destaque: {escape(leading_dimension[0])}</p>'
+                    f'<p>Resultado: {float(row[leading_dimension[1]]):.1f}/100</p>'
                 )
             else:
                 leading_summary = (
-                    "<p>Indicador de destaque: sem dados</p>"
-                    "<p>Índice relativo: indisponível</p>"
+                    "<p>Destaque: informação indisponível</p>"
+                    "<p>Comparação: indisponível</p>"
                 )
 
             if is_real_v2:
-                cluster_name = escape(str(row["cluster"]))
-                profile_code = escape(str(row["perfil_id"]))
+                cluster_name = escape(nome_perfil(row["cluster"]))
                 density = float(row["densidade_hab_km2"])
                 profile_summary = (
-                    f"<p>Perfil territorial K-Means: <strong>{cluster_name}</strong></p>"
-                    f"<p>Identificador: {profile_code}</p>"
+                    f"<p>Estilo da região: <strong>{cluster_name}</strong></p>"
                     f"<p>Densidade: {density:,.0f} hab./km²</p>"
                 )
             else:
@@ -125,7 +124,7 @@ with st.container(key="profiles-grid"):
                 f'<div class="profile-card"><strong>{escape(str(row["neighborhood"]))}</strong>'
                 f'{profile_summary}'
                 f'{leading_summary}'
-                f'<p>Pontuação personalizada: {float(row["priority_score"]):.1f}/100</p></div>',
+                f'<p>Combina com suas escolhas: {float(row["priority_score"]):.1f}/100</p></div>',
                 unsafe_allow_html=True,
             )
 
@@ -146,7 +145,7 @@ figure = px.bar(
     color_discrete_sequence=["#2d8a6e", "#356ae6", "#d96b43", "#8a58b5", "#c59b35"],
     labels={
         "indicator": "Dimensão",
-        "score": "Índice relativo (0–100)",
+        "score": "Resultado de 0 a 100",
         "neighborhood": "Distrito" if is_real_v2 else "Bairro",
     },
 )
