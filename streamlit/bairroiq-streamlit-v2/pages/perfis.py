@@ -37,7 +37,7 @@ selected_names = st.session_state.get(
 profiles = scored[scored["neighborhood"].isin(selected_names)].copy()
 
 if profiles.empty:
-    st.info("Selecione distritos em Quick Distritos para visualizar os perfis.")
+    st.info("Use o menu 'Escolher distritos' para selecionar as regiões que deseja conhecer.")
     st.stop()
 
 # Os dados reais V2 são identificados pelo contrato, não por uma flag manual.
