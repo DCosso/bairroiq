@@ -1,3 +1,13 @@
+"""Provedor SQL Databricks do Streamlit integrado ao BairroIQ.
+
+Lê o Consumer V2 usando o módulo existente bairroiq.consumer_v2.
+Nenhuma função deste arquivo escreve dados, altera grants ou homologa snapshots.
+
+Dados candidatos somente podem ser consultados para prévia interna por meio
+ de BAIRROIQ_INTERNAL_PREVIEW=true em um ambiente efetivamente privado, cujo
+acesso seja controlado no Databricks Apps e no Unity Catalog. A variável de
+ambiente NÃO substitui controles de acesso.
+"""
 from __future__ import annotations
 
 import os
@@ -7,6 +17,7 @@ from typing import Any, Mapping
 
 import pandas as pd
 
+from bairroiq.consumer_v2 import build_query, validate_frame
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _DEFAULT_TABLE = "workspace.gold.bairroiq_frontend_v1"
@@ -44,7 +55,7 @@ class DatabricksConfig:
         secrets: Mapping[str, Any] | None = None,
         environ: Mapping[str, str] | None = None,
     ) -> DatabricksConfig:
-        """Lê a configuração do app ou secrets locais para desenvolvimento."""
+        """Mantém a configuração usada pela versão integrada da Laís."""
         environment = os.environ if environ is None else environ
         secret_values: Mapping[str, Any] = {}
         if secrets is not None:
@@ -67,7 +78,10 @@ class DatabricksConfig:
                     return value.strip()
             return default
 
-        host = setting(("DATABRICKS_HOST", "DATABRICKS_SERVER_HOSTNAME",), "server_hostname")
+        host = setting(
+            ("DATABRICKS_HOST", "DATABRICKS_SERVER_HOSTNAME"),
+            "server_hostname",
+        )
         warehouse_id = setting(("DATABRICKS_WAREHOUSE_ID",), "warehouse_id")
         http_path = setting(("DATABRICKS_HTTP_PATH",), "http_path")
         if not http_path and warehouse_id:
@@ -96,10 +110,10 @@ class DatabricksConfig:
 
 
 class DatabricksDataProvider:
-    """Consulta a tabela publicada e traduz seus nomes para o contrato do app.
+    """Consulta o snapshot V2 e traduz os campos para o Streamlit.
 
-    A autenticação em Databricks Apps usa a identidade do próprio app (OAuth).
-    Um token pessoal é aceito apenas para compatibilidade com desenvolvimento local.
+    O OAuth da identidade do aplicativo permanece o padrão do Databricks Apps.
+    O token pessoal continua restrito ao desenvolvimento local.
     """
 
     def __init__(self, config: DatabricksConfig) -> None:
@@ -140,61 +154,41 @@ class DatabricksDataProvider:
                 return pd.DataFrame(cursor.fetchall(), columns=columns)
 
     def load_metrics(self) -> pd.DataFrame:
-        """Busca apenas dados autorizados do snapshot mais recente.
+        """Busca, valida e entrega indicadores reais do Consumer V2.
 
-        O MAX(snapshot_id) considera a ordenação textual. Para representar
-        recência, os IDs precisam ser ordenáveis (por exemplo, timestamp ISO).
+        Modo padrão: consulta somente linhas homologadas.
+        Modo de prévia: BAIRROIQ_INTERNAL_PREVIEW=true, exclusivamente com
+        acesso privado e previamente autorizado aos usuários do aplicativo.
         """
-        query = f"""
-            WITH ultimo_snapshot_publicado AS (
-                SELECT MAX(snapshot_id) AS snapshot_id
-                FROM {self._config.metrics_table}
-                WHERE publicacao_autorizada IS TRUE
-            )
-            SELECT
-                fonte.snapshot_id,
-                fonte.cd_dist AS district_code,
-                fonte.distrito AS neighborhood,
-                fonte.latitude,
-                fonte.longitude,
-                fonte.perfil_id,
-                fonte.cluster,
-                fonte.tipo_territorio,
-                fonte.empregos AS formal_jobs_score,
-                fonte.roubos AS robbery_index,
-                fonte.seguranca AS safety_score,
-                fonte.mobilidade AS mobility_score,
-                CAST(NULL AS DOUBLE) AS lighting_led,
-                CAST(NULL AS DOUBLE) AS trees_score,
-                CAST(NULL AS DOUBLE) AS affordability_score
-            FROM {self._config.metrics_table} AS fonte
-            INNER JOIN ultimo_snapshot_publicado AS snapshot
-                ON fonte.snapshot_id = snapshot.snapshot_id
-            WHERE fonte.publicacao_autorizada IS TRUE
-            ORDER BY fonte.distrito
-        """
-        metrics = self._read_query(query)
-        if metrics.empty:
+        internal_preview = (
+            os.getenv("BAIRROIQ_INTERNAL_PREVIEW", "false").strip().lower()
+            == "true"
+        )
+
+        # DatabricksConfig guarda a tabela já validada e com crases. O módulo
+        # consumer_v2 normaliza e valida novamente seu identificador SQL.
+        metrics_table = self._config.metrics_table.replace("`", "")
+        query = build_query(
+            metrics_table=metrics_table,
+            internal_preview=internal_preview,
+        )
+        raw = self._read_query(query)
+        if raw.empty:
             raise ValueError(
-                "A tabela não retornou bairros publicados. Confira se há linhas com "
-                "publicacao_autorizada = true e snapshot_id preenchido."
+                "Consulta V2 sem registros. Confira o snapshot, as permissões "
+                "e publicacao_autorizada. Prévia não homologada somente em "
+                "ambiente privado e com BAIRROIQ_INTERNAL_PREVIEW=true."
             )
-        if metrics["neighborhood"].isna().any():
-            raise ValueError(
-                "Há registros publicados sem distrito (coluna distrito). "
-                "Corrija a tabela antes de disponibilizar o mapa."
-            )
-        duplicated = metrics.loc[
-            metrics["neighborhood"].duplicated(keep=False), "neighborhood"
-        ].unique()
-        if len(duplicated):
-            names = ", ".join(sorted(map(str, duplicated)))
-            raise ValueError(
-                "Há mais de uma linha publicada para o mesmo distrito no snapshot "
-                f"mais recente: {names}. Garanta uma linha por distrito."
-            )
+
+        metrics = validate_frame(raw, internal_preview=internal_preview)
+
+        # Dois aliases conservam os pontos de entrada do frontend atual.
+        # robbery_index mantém a taxa real de roubos por mil habitantes;
+        # NÃO é uma pontuação de segurança nem deve ser multiplicado por 10.
+        metrics["district_code"] = metrics["cd_dist"]
+        metrics["robbery_index"] = metrics["robberies_per_1000"]
         return metrics
 
     def load_history(self) -> pd.DataFrame:
-        """Não inventa uma série temporal a partir de snapshots sem data."""
+        """Não inventa série histórica a partir de um único snapshot."""
         return pd.DataFrame(columns=_HISTORY_COLUMNS)
