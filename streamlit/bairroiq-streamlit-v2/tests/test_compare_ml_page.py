@@ -1,53 +1,33 @@
-"""Proteções estáticas para a tela Comparação sem depender do Streamlit."""
+"""A comparação mantém gráficos, mas mostra nomes comerciais dos grupos."""
 from __future__ import annotations
-
 import ast
-import unittest
 from pathlib import Path
-
-
-PAGE = Path(__file__).resolve().parents[1] / "pages" / "comparar.py"
-
-
+import unittest
+PAGE=Path(__file__).resolve().parents[1]/'pages/comparar.py'
 class CompareMlPageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.source = PAGE.read_text(encoding="utf-8")
-        cls.tree = ast.parse(cls.source)
-
-    def test_real_kmeans_cluster_chart(self):
-        self.assertIn("build_cluster_comparison(scored, selected)", self.source)
-        self.assertIn('key="comparison-chart-cluster"', self.source)
-        self.assertIn('"cluster", "perfil_id", "distritos_no_perfil"', self.source)
-
-    def test_no_demo_history_chart_or_loading(self):
-        self.assertNotIn("load_history", self.source)
-        self.assertNotIn("history_comparison", self.source)
-        self.assertNotIn("Evolução temporal", self.source)
-        self.assertNotIn('x="year"', self.source)
-
-    def test_original_layout_survives(self):
-        for marker in (
-            'key="comparison-summary-panel"', 'key="comparison-map-card"',
-            'key="comparison-ranking-card"', 'key="comparison-chart-indicators"',
-            'key="comparison-chart-profile"', 'key="comparison-map"',
-            '"duel-card"',
-        ):
-            self.assertIn(marker, self.source)
-
-    def test_no_old_indicators_in_v2_flow(self):
-        # Os nomes antigos só podem aparecer na compatibilidade ilustrativa.
-        self.assertIn('metric_options = dict(V2_INDICATORS)', self.source)
-        self.assertIn('priority_options = dict(V2_WEIGHT_DIMENSIONS)', self.source)
-        self.assertIn('real_v2 = is_real_v2(scored)', self.source)
-
-    def test_cluster_ids_not_used_as_quantities(self):
-        self.assertIn('x="codigo", y="aderencia_media"', self.source)
-        self.assertIn('xaxis={"type": "category"', self.source)
-
-    def test_max_five_districts(self):
-        self.assertIn('max_selections=5', self.source)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        cls.source=PAGE.read_text(encoding='utf-8')
+        cls.tree=ast.parse(cls.source)
+    def test_groups_are_original_and_labels_commercial(self):
+        self.assertIn('build_cluster_comparison(scored, selected)',cls_source := self.source)
+        self.assertIn('key="comparison-chart-cluster"',cls_source)
+        self.assertIn('"ticktext": nomes_perfis',cls_source)
+        self.assertIn('custom_data=["cluster", "distritos_no_perfil"]',cls_source)
+        self.assertNotIn('"Identificador ML"',cls_source)
+    def test_no_fictitious_history(self):
+        for value in ('load_history','history_comparison','Evolução temporal','x="year"'):
+            self.assertNotIn(value,self.source)
+    def test_layout_survives(self):
+        for key in ('key="comparison-summary-panel"','key="comparison-map-card"',
+                    'key="comparison-ranking-card"','key="comparison-chart-indicators"',
+                    'key="comparison-chart-profile"','key="comparison-map"','"duel-card"'):
+            self.assertIn(key,self.source)
+    def test_v2_dimensions(self):
+        for value in ('metric_options = dict(V2_INDICATORS)',
+                      'priority_options = dict(V2_WEIGHT_DIMENSIONS)',
+                      'real_v2 = is_real_v2(scored)'):
+            self.assertIn(value,self.source)
+        self.assertIn('x="codigo", y="aderencia_media"',self.source)
+        self.assertIn('max_selections=5',self.source)
+if __name__=='__main__':unittest.main()
