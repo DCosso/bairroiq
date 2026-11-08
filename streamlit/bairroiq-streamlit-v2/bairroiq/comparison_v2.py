@@ -12,6 +12,8 @@ from collections.abc import Mapping, Sequence
 
 import pandas as pd
 
+from bairroiq.ux_labels import nome_perfil
+
 V2_INDICATORS: Mapping[str, str] = {
     "Empregos formais": "formal_jobs_score",
     "Segurança": "safety_score",
@@ -111,7 +113,7 @@ def selected_cluster_descriptions(
         return []
     matched = all_scored[all_scored["neighborhood"].isin(selected_names)]
     lookup = {
-        str(row["neighborhood"]): f'{row["neighborhood"]}: {row["cluster"]}'
+        str(row["neighborhood"]): f'{row["neighborhood"]}: {nome_perfil(row["cluster"])}'
         for _, row in matched.iterrows()
     }
     return [lookup[name] for name in selected_names if name in lookup]
