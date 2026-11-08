@@ -12,6 +12,8 @@ import pandas as pd
 import streamlit as st
 
 from bairroiq.map_data import DistrictMapService
+from bairroiq.explore_logic import calcular_exploracao
+from bairroiq.ux_labels import nome_perfil
 from bairroiq.provider import load_metrics
 from bairroiq.scoring import SCENARIO_SCORER
 from bairroiq.ui import SCENARIO_DEFAULTS, render_header
@@ -65,15 +67,8 @@ is_real_v2 = {
     "robberies_per_1000", "perfil_id", "cluster",
 }.issubset(metrics.columns)
 
+# Uma seleção vazia é intencional: significa ver todos os distritos.
 if "map-priority-selection-initialized" not in st.session_state:
-    if not st.session_state.get(_SELECTION_KEY) and not st.session_state.get("selected-zone"):
-        initial_weights = {
-            key: int(st.session_state.get(f"scenario-value-{key}", default))
-            for key, default in SCENARIO_DEFAULTS.items()
-        }
-        initial_weights = initial_weights if sum(initial_weights.values()) else SCENARIO_DEFAULTS
-        initial_scored = SCENARIO_SCORER.score_neighborhoods(metrics, initial_weights)
-        st.session_state[_SELECTION_KEY] = initial_scored["neighborhood"].tolist()
     st.session_state["map-priority-selection-initialized"] = True
 
 render_header("explore")
@@ -97,26 +92,32 @@ def render_map_explorer() -> None:
     }
     weights_for_score = weights if sum(weights.values()) else SCENARIO_DEFAULTS
     all_scored = SCENARIO_SCORER.score_neighborhoods(metrics, weights_for_score)
-    scored = all_scored
     selected_names = st.session_state[_SELECTION_KEY]
     for name in neighborhood_names:
         checkbox_key = f"district-checkbox-{name}"
         if st.session_state.get(checkbox_key) != (name in selected_names):
             st.session_state[checkbox_key] = name in selected_names
 
-    selected_zone = st.session_state.get("selected-zone")
-    if selected_zone:
-        scored = scored.copy()
-        scored["zone"] = scored.apply(district_map_service.zone_for_neighborhood, axis=1)
-        scored = scored[scored["zone"] == selected_zone].copy()
+    # O Top 10, as opções do mapa e os resultados da busca precisam usar
+    # exatamente os mesmos filtros. A seleção de distritos só restringe o mapa.
+    scored, top10_ranking, visible = calcular_exploracao(
+        all_scored, selected_names, search, quick_filters,
+        zona=st.session_state.get("selected-zone"),
+        identificar_zona=district_map_service.zone_for_neighborhood,
+    )
     if scored.empty:
-        st.info("Nenhum distrito encontrado para a seleção atual.")
+        st.info("Nenhum distrito combina com esses filtros. Tente retirar um deles.")
         return
-    top10_ranking = scored.head(10)
+    if visible.empty:
+        st.info(
+            "Os distritos escolhidos não atendem aos filtros atuais. "
+            "Você pode limpar a seleção para ver todas as opções disponíveis."
+        )
+        return
     top10_names = top10_ranking["neighborhood"].tolist()
     st.session_state["top10-neighborhoods"] = top10_names
     selected_ranking = district_map_service.selected_district_ranking(
-        all_scored, st.session_state.get(_SELECTION_KEY, [])
+        scored, selected_names
     )
     selected_ranking = selected_ranking[
         ~selected_ranking["neighborhood"].isin(top10_names)
@@ -125,13 +126,6 @@ def render_map_explorer() -> None:
         *top10_ranking.to_dict(orient="records"),
         *selected_ranking.to_dict(orient="records"),
     ]
-    if selected_zone and selected_names:
-        selected_names = [name for name in selected_names if name in top10_names]
-    elif selected_zone:
-        selected_names = top10_names
-    visible = district_map_service.filter_districts(
-        scored, selected_names, search, quick_filters
-    )
     map_visible, missing_boundaries = district_map_service.restrict_to_mapped_districts(visible)
     figure = district_map_service.build_map(
         map_visible,
@@ -144,7 +138,7 @@ def render_map_explorer() -> None:
 
     visible_names = visible["neighborhood"].tolist()
     active_detail = st.session_state.get("active-district-detail")
-    if active_detail not in selected_names:
+    if active_detail not in visible_names:
         active_detail = None
         st.session_state["active-district-detail"] = None
 
@@ -161,30 +155,13 @@ def render_map_explorer() -> None:
             config={"displayModeBar": False, "scrollZoom": True},
             on_select="rerun", selection_mode="points",
         )
-        if is_real_v2:
-            st.caption(
-                "Geometria dos distritos: Prefeitura de São Paulo, Distritos Municipais, "
-                "reprojetada para WGS84 e simplificada para visualização. "
-                "Indicadores pertencem ao snapshot candidato do BairroIQ."
-            )
-            centroid_count = sum(
-                len(trace.lat)
-                for trace in figure.data
-                if trace.type == "scattermap" and trace.lat is not None
-            )
-            if centroid_count:
-                st.caption(
-                    f"{centroid_count} distrito(s) representado(s) por pontos de centroide "
-                    "porque não há polígonos oficiais integrados para eles. "
-                    "Os pontos não indicam os limites territoriais."
-                )
-        elif "illustrative_boundary" in map_visible.columns and map_visible["illustrative_boundary"].any():
-            st.caption("Os limites de alguns bairros demonstrativos são ilustrativos.")
+        if not is_real_v2 and "illustrative_boundary" in map_visible.columns and map_visible["illustrative_boundary"].any():
+            st.caption("Algumas regiões de exemplo estão representadas de forma ilustrativa.")
         if missing_boundaries:
             st.warning(
-                "O mapa não tem limites cadastrados para: "
+                "Não foi possível mostrar no mapa: "
                 f"{', '.join(missing_boundaries)}. Eles continuam disponíveis "
-                "nas listas e nos cálculos."
+                "nas outras opções de consulta."
             )
 
         selected_points = map_state.selection.points
@@ -199,7 +176,7 @@ def render_map_explorer() -> None:
             st.rerun()
 
         active_detail = st.session_state.get("active-district-detail")
-        if active_detail not in selected_names:
+        if active_detail not in visible_names:
             active_detail = None
             st.session_state["active-district-detail"] = None
         fallback_names = visible_names or selected_names or scored["neighborhood"].tolist()
@@ -218,7 +195,7 @@ def render_map_explorer() -> None:
                         f'<span>Serviços públicos <strong>{_format_indicator(focus["public_services_score"])}</strong></span>'
                         f'<span>Densidade <strong>{_format_indicator(focus["densidade_hab_km2"], decimals=0)} hab./km²</strong></span>'
                         f'<span>Roubos <strong>{_format_indicator(focus["robberies_per_1000"], decimals=2)} /1.000 hab.</strong></span>'
-                        f'<span>Perfil <strong>{escape(str(focus["cluster"]))}</strong></span>'
+                        f'<span>Estilo da região <strong>{escape(nome_perfil(focus["cluster"]))}</strong></span>'
                     )
                 else:
                     metrics_html = (
@@ -253,8 +230,8 @@ def render_map_explorer() -> None:
                     on_click=_close_district_details,
                 )
         with st.container(key="ranking-panel", border=True):
-            st.markdown("### Melhores Distritos")
-            st.caption("Top 10 do cenário e distritos selecionados")
+            st.markdown("### Distritos que combinam com você")
+            st.caption("As melhores combinações com suas preferências e suas escolhas")
             if not ranking_rows:
                 st.caption("Nenhum distrito encontrado para as seleções solicitadas.")
             else:
@@ -273,7 +250,7 @@ def render_map_explorer() -> None:
                 ):
                     _open_comparison()
                     st.switch_page("pages/comparar.py")
-            st.caption("Clique em um distrito no mapa para ver sua análise.")
+            st.caption("Clique no mapa para conhecer cada distrito.")
 
 
 render_map_explorer()
