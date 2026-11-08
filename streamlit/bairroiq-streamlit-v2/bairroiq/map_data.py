@@ -18,6 +18,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from bairroiq.ux_labels import nome_perfil
+
 
 _BOUNDARIES_FILE = Path(__file__).with_name("district_boundaries.geojson")
 _MAP_CENTER = {"lat": -23.56, "lon": -46.65}
@@ -70,24 +72,34 @@ def filter_districts(
     visible = neighborhoods[neighborhoods["neighborhood"].isin(selected_names)].copy()
     if search.strip():
         normalized_search = _normalize_search(search)
-        intents = _SEARCH_INTENTS_REAL if _real_v2(neighborhoods) else _SEARCH_INTENTS_SAMPLE
-        matched_intents = [
-            (column, minimum)
-            for column, (keywords, minimum) in intents.items()
-            if any(keyword in normalized_search.split() for keyword in keywords)
-        ]
-        matched_neighborhoods = [
-            name for name in neighborhoods["neighborhood"].unique()
-            if f" {_normalize_search(str(name))} " in f" {normalized_search} "
-        ]
-        if matched_neighborhoods:
-            visible = visible[visible["neighborhood"].isin(matched_neighborhoods)]
-        elif not matched_intents:
+        # A busca sugerida por estilo deve filtrar pelo estilo real, e não
+        # por uma palavra incidental como "transporte".
+        profile_names = set()
+        if _real_v2(neighborhoods) and "cluster" in neighborhoods.columns:
+            profile_names = set(neighborhoods["cluster"].map(nome_perfil).map(_normalize_search))
+        if normalized_search in profile_names:
             visible = visible[
-                visible["neighborhood"].str.contains(search.strip(), case=False, na=False, regex=False)
+                visible["cluster"].map(nome_perfil).map(_normalize_search) == normalized_search
             ]
-        for column, minimum in matched_intents:
-            visible = visible[visible[column] >= minimum]
+        else:
+            intents = _SEARCH_INTENTS_REAL if _real_v2(neighborhoods) else _SEARCH_INTENTS_SAMPLE
+            matched_intents = [
+                (column, minimum)
+                for column, (keywords, minimum) in intents.items()
+                if any(keyword in normalized_search.split() for keyword in keywords)
+            ]
+            matched_neighborhoods = [
+                name for name in neighborhoods["neighborhood"].unique()
+                if f" {_normalize_search(str(name))} " in f" {normalized_search} "
+            ]
+            if matched_neighborhoods:
+                visible = visible[visible["neighborhood"].isin(matched_neighborhoods)]
+            elif not matched_intents:
+                visible = visible[
+                    visible["neighborhood"].str.contains(search.strip(), case=False, na=False, regex=False)
+                ]
+            for column, minimum in matched_intents:
+                visible = visible[visible[column] >= minimum]
     for filter_name in quick_filters:
         if filter_name not in DISTRICT_FILTERS:
             # Um filtro antigo pode permanecer na sessão depois da atualização.
@@ -234,21 +246,26 @@ def build_district_map(
 
     polygon_rows = visible_neighborhoods[
         visible_neighborhoods["neighborhood"].isin(features_by_name)
-    ]
+    ].copy()
+    if real and not polygon_rows.empty:
+        polygon_rows["nome_perfil_publico"] = polygon_rows["cluster"].map(nome_perfil)
     selected_features = [features_by_name[name] for name in polygon_rows["neighborhood"]]
     figure = go.Figure()
 
     if not polygon_rows.empty:
-        fill_opacity = 0.1 if theme == "light" else 0.45
+        fill_opacity = (
+            (0.84 if theme == "light" else 0.76)
+            if real else (0.1 if theme == "light" else 0.45)
+        )
         if real:
             custom_columns = [
                 "formal_jobs_score", "safety_score", "robberies_per_1000",
                 "green_leisure_score", "mobility_score", "public_services_score",
-                "densidade_hab_km2", "cluster",
+                "densidade_hab_km2", "nome_perfil_publico",
             ]
             hover = (
                 "<b>%{location}</b><br>"
-                "Aderência: %{z:.1f}/100<br>"
+                "Combina com suas escolhas: %{z:.1f}/100<br>"
                 "Empregos formais: %{customdata[0]:.1f}/100<br>"
                 "Segurança: %{customdata[1]:.1f}/100<br>"
                 "Roubos: %{customdata[2]:.2f} por 1.000 hab.<br>"
@@ -256,7 +273,7 @@ def build_district_map(
                 "Mobilidade: %{customdata[4]:.1f}/100<br>"
                 "Serviços públicos: %{customdata[5]:.1f}/100<br>"
                 "Densidade: %{customdata[6]:.0f} hab./km²<br>"
-                "Perfil: %{customdata[7]}<extra></extra>"
+                "Estilo da região: %{customdata[7]}<extra></extra>"
             )
         else:
             custom_columns = [
@@ -279,12 +296,24 @@ def build_district_map(
             z=polygon_rows["priority_score"],
             customdata=polygon_rows[custom_columns].to_numpy(),
             featureidkey="properties.neighborhood",
-            colorscale=[
-                [0, f"rgba(26, 54, 93, {fill_opacity})" if theme == "light" else f"rgba(255, 255, 255, {fill_opacity})"],
-                [1, f"rgba(26, 54, 93, {fill_opacity})" if theme == "light" else f"rgba(255, 255, 255, {fill_opacity})"],
-            ],
-            zmin=0, zmax=100, showscale=False,
-            marker={"line": {"color": "rgba(0,0,0,0)", "width": 0}},
+            colorscale=(
+                [[0, f"rgba(209, 80, 89, {fill_opacity})"],
+                 [0.5, f"rgba(241, 192, 86, {fill_opacity})"],
+                 [1, f"rgba(36, 159, 115, {fill_opacity})"]]
+                if real else [
+                    [0, f"rgba(26, 54, 93, {fill_opacity})" if theme == "light"
+                     else f"rgba(255, 255, 255, {fill_opacity})"],
+                    [1, f"rgba(26, 54, 93, {fill_opacity})" if theme == "light"
+                     else f"rgba(255, 255, 255, {fill_opacity})"],
+                ]
+            ),
+            zmin=0, zmax=100, showscale=real,
+            colorbar={"title": {"text": "Afinidade"}, "x": 0.015,
+                      "y": 0.40, "len": 0.55, "thickness": 12,
+                      "tickvals": [0, 50, 100], "outlinewidth": 0,
+                      "tickfont": {"size": 10}} if real else None,
+            marker={"line": {"color": "rgba(255,255,255,0.35)" if real else "rgba(0,0,0,0)",
+                             "width": 0.6 if real else 0}},
             hovertemplate=hover,
             name="Distritos com polígonos",
         ))
@@ -294,10 +323,11 @@ def build_district_map(
             ~visible_neighborhoods["neighborhood"].isin(features_by_name)
         ].copy()
         if not centroid_rows.empty:
+            centroid_rows["nome_perfil_publico"] = centroid_rows["cluster"].map(nome_perfil)
             columns = [
                 "neighborhood", "formal_jobs_score", "safety_score", "robberies_per_1000",
                 "green_leisure_score", "mobility_score", "public_services_score",
-                "densidade_hab_km2", "cluster", "priority_score",
+                "densidade_hab_km2", "nome_perfil_publico", "priority_score",
             ]
             figure.add_trace(go.Scattermap(
                 lat=centroid_rows["latitude"], lon=centroid_rows["longitude"],
@@ -307,8 +337,8 @@ def build_district_map(
                         "colorscale": "Viridis", "cmin": 0, "cmax": 100,
                         "showscale": False, "opacity": .9},
                 hovertemplate=(
-                    "<b>%{customdata[0]}</b> · centroide distrital<br>"
-                    "Aderência: %{customdata[9]:.1f}/100<br>"
+                    "<b>%{customdata[0]}</b> · localização do distrito<br>"
+                    "Combina com suas escolhas: %{customdata[9]:.1f}/100<br>"
                     "Empregos: %{customdata[1]:.1f}/100<br>"
                     "Segurança: %{customdata[2]:.1f}/100<br>"
                     "Roubos: %{customdata[3]:.2f} por 1.000 hab.<br>"
@@ -316,8 +346,8 @@ def build_district_map(
                     "Mobilidade: %{customdata[5]:.1f}/100<br>"
                     "Serviços públicos: %{customdata[6]:.1f}/100<br>"
                     "Densidade: %{customdata[7]:.0f} hab./km²<br>"
-                    "Perfil: %{customdata[8]}<br>"
-                    "Ponto representa a localização, não os limites do distrito"
+                    "Estilo da região: %{customdata[8]}<br>"
+                    "Localização aproximada da região"
                     "<extra></extra>"
                 ),
                 name="Centroides distritais",
