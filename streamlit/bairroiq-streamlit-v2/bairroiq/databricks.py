@@ -1,5 +1,15 @@
+"""Provedor do Atlas Sampa/BairroIQ a partir do Consumer V2 Delta auditado.
+
+Mantém o acesso SQL, OAuth e o contrato DataProvider da integração original.
+Somente leitura: não cria tabelas, não altera ACLs nem permite publicação.
+A prévia de snapshots não homologados requer opt-in explícito E ambiente privado
+com permissões apropriadas; a variável por si só não é autorização de acesso.
+"""
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 import os
 import re
 from dataclasses import dataclass
@@ -7,15 +17,23 @@ from typing import Any, Mapping
 
 import pandas as pd
 
+from bairroiq.consumer_v2 import REQUIRED_COLUMNS, SNAPSHOT, validate_frame
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_DEFAULT_TABLE = "workspace.gold.bairroiq_frontend_v1"
+_SHA256 = re.compile(r"^[a-f0-9]{64}$")
+_DEFAULT_TABLE = "workspace.gold.bairroiq_frontend_v2"
+_CONTRACT_VERSION = "frontend_v2.0.0"
+_EXPECTED_SQL_SHA256 = "6eb594ea533fb033a392b6b70dede47731f008284ceb80f6be7bf1d988e7e7db"
+_AUDIT_COLUMNS = (
+    "versao_contrato", "payload_sha256", "sql_sha256", "materializado_em_utc",
+)
+_NUMERIC = {
+    "latitude", "longitude", "formal_jobs_score", "safety_score",
+    "mobility_score", "green_leisure_score", "public_services_score",
+    "densidade_hab_km2", "robberies_per_1000",
+}
 _HISTORY_COLUMNS = [
-    "neighborhood",
-    "year",
-    "formal_jobs_score",
-    "lighting_led",
-    "safety_score",
+    "neighborhood", "year", "formal_jobs_score", "lighting_led", "safety_score",
 ]
 
 
@@ -26,7 +44,7 @@ def _qualified_table(table_name: str) -> str:
     ):
         raise ValueError(
             "O nome da tabela deve usar identificadores SQL simples, "
-            "como workspace.gold.bairroiq_frontend_v1."
+            "como workspace.gold.bairroiq_frontend_v2."
         )
     return ".".join(f"`{part}`" for part in parts)
 
@@ -44,7 +62,7 @@ class DatabricksConfig:
         secrets: Mapping[str, Any] | None = None,
         environ: Mapping[str, str] | None = None,
     ) -> DatabricksConfig:
-        """Lê a configuração do app ou secrets locais para desenvolvimento."""
+        """Configura o SQL Warehouse sem quebrar o app.yaml ou secrets local."""
         environment = os.environ if environ is None else environ
         secret_values: Mapping[str, Any] = {}
         if secrets is not None:
@@ -67,7 +85,10 @@ class DatabricksConfig:
                     return value.strip()
             return default
 
-        host = setting(("DATABRICKS_HOST", "DATABRICKS_SERVER_HOSTNAME",), "server_hostname")
+        host = setting(
+            ("DATABRICKS_HOST", "DATABRICKS_SERVER_HOSTNAME"),
+            "server_hostname",
+        )
         warehouse_id = setting(("DATABRICKS_WAREHOUSE_ID",), "warehouse_id")
         http_path = setting(("DATABRICKS_HTTP_PATH",), "http_path")
         if not http_path and warehouse_id:
@@ -95,12 +116,58 @@ class DatabricksConfig:
         )
 
 
-class DatabricksDataProvider:
-    """Consulta a tabela publicada e traduz seus nomes para o contrato do app.
+def _payload_sha256(df: pd.DataFrame) -> str:
+    """Mesmo algoritmo determinístico da materialização aprovada no Databricks."""
+    rows: list[list[object]] = []
+    for _, row in df.sort_values("cd_dist").iterrows():
+        values: list[object] = []
+        for column in REQUIRED_COLUMNS:
+            value = row[column]
+            if column == "cd_dist":
+                values.append(int(value))
+            elif column in _NUMERIC:
+                values.append(format(float(value), ".17g"))
+            elif column == "publicacao_autorizada":
+                values.append(bool(value))
+            else:
+                values.append(str(value))
+        rows.append(values)
+    encoded = json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
-    A autenticação em Databricks Apps usa a identidade do próprio app (OAuth).
-    Um token pessoal é aceito apenas para compatibilidade com desenvolvimento local.
-    """
+
+def _verify_audited_result(raw: pd.DataFrame, *, internal_preview: bool) -> pd.DataFrame:
+    """Valida 16 campos físicos e quatro metadados antes de expor ao Streamlit."""
+    missing = set(_AUDIT_COLUMNS).difference(raw.columns)
+    if missing:
+        raise ValueError(f"A tabela Delta V2 não contém auditoria: {sorted(missing)}")
+
+    for col in _AUDIT_COLUMNS:
+        if raw[col].isna().any() or raw[col].nunique() != 1:
+            raise ValueError(f"Auditoria incompleta ou não uniforme: {col}")
+
+    version = str(raw["versao_contrato"].iloc[0])
+    if version != _CONTRACT_VERSION:
+        raise ValueError(f"Versão de contrato não reconhecida: {version}")
+
+    sql_sha = str(raw["sql_sha256"].iloc[0])
+    if sql_sha != _EXPECTED_SQL_SHA256:
+        raise ValueError("Hash SQL não corresponde à consulta V2 materializada")
+
+    expected_payload = str(raw["payload_sha256"].iloc[0])
+    if not _SHA256.fullmatch(expected_payload):
+        raise ValueError("Hash SHA256 de auditoria malformado")
+
+    metrics = validate_frame(raw, internal_preview=internal_preview)
+    calculated_payload = _payload_sha256(metrics)
+    if calculated_payload != expected_payload:
+        raise ValueError("Hash do conteúdo divergente: snapshot alterado após a auditoria")
+
+    return metrics
+
+
+class DatabricksDataProvider:
+    """Consulta exclusivamente a tabela V2 física, sem recomputar percentis."""
 
     def __init__(self, config: DatabricksConfig) -> None:
         self._config = config
@@ -140,61 +207,44 @@ class DatabricksDataProvider:
                 return pd.DataFrame(cursor.fetchall(), columns=columns)
 
     def load_metrics(self) -> pd.DataFrame:
-        """Busca apenas dados autorizados do snapshot mais recente.
+        """Busca uma fotografia física V2 e confere o conteúdo contra seu hash.
 
-        O MAX(snapshot_id) considera a ordenação textual. Para representar
-        recência, os IDs precisam ser ordenáveis (por exemplo, timestamp ISO).
+        Por padrão usa somente dados homologados.
+        BAIRROIQ_INTERNAL_PREVIEW=true apenas permite a consulta à fotografia
+        candidata quando a aplicação inteira tem acesso privado autorizado.
         """
+        internal_preview = (
+            os.getenv("BAIRROIQ_INTERNAL_PREVIEW", "false").strip().lower()
+            == "true"
+        )
+        gate = "" if internal_preview else "AND publicacao_autorizada IS TRUE"
         query = f"""
-            WITH ultimo_snapshot_publicado AS (
-                SELECT MAX(snapshot_id) AS snapshot_id
-                FROM {self._config.metrics_table}
-                WHERE publicacao_autorizada IS TRUE
-            )
             SELECT
-                fonte.snapshot_id,
-                fonte.cd_dist AS district_code,
-                fonte.distrito AS neighborhood,
-                fonte.latitude,
-                fonte.longitude,
-                fonte.perfil_id,
-                fonte.cluster,
-                fonte.tipo_territorio,
-                fonte.empregos AS formal_jobs_score,
-                fonte.roubos AS robbery_index,
-                fonte.seguranca AS safety_score,
-                fonte.mobilidade AS mobility_score,
-                CAST(NULL AS DOUBLE) AS lighting_led,
-                CAST(NULL AS DOUBLE) AS trees_score,
-                CAST(NULL AS DOUBLE) AS affordability_score
-            FROM {self._config.metrics_table} AS fonte
-            INNER JOIN ultimo_snapshot_publicado AS snapshot
-                ON fonte.snapshot_id = snapshot.snapshot_id
-            WHERE fonte.publicacao_autorizada IS TRUE
-            ORDER BY fonte.distrito
+                snapshot_id, cd_dist, neighborhood, latitude, longitude,
+                formal_jobs_score, safety_score, mobility_score,
+                green_leisure_score, public_services_score,
+                densidade_hab_km2, robberies_per_1000, perfil_id,
+                cluster, tipo_territorio, publicacao_autorizada,
+                versao_contrato, payload_sha256, sql_sha256, materializado_em_utc
+            FROM {self._config.metrics_table}
+            WHERE snapshot_id = '{SNAPSHOT}'
+              {gate}
+            ORDER BY cd_dist
         """
-        metrics = self._read_query(query)
-        if metrics.empty:
+        raw = self._read_query(query)
+        if raw.empty:
             raise ValueError(
-                "A tabela não retornou bairros publicados. Confira se há linhas com "
-                "publicacao_autorizada = true e snapshot_id preenchido."
+                "Consumer V2 físico sem registros acessíveis. O snapshot é interno "
+                "e não homologado; confira identidade, permissões e liberação "
+                "para prévia estritamente privada."
             )
-        if metrics["neighborhood"].isna().any():
-            raise ValueError(
-                "Há registros publicados sem distrito (coluna distrito). "
-                "Corrija a tabela antes de disponibilizar o mapa."
-            )
-        duplicated = metrics.loc[
-            metrics["neighborhood"].duplicated(keep=False), "neighborhood"
-        ].unique()
-        if len(duplicated):
-            names = ", ".join(sorted(map(str, duplicated)))
-            raise ValueError(
-                "Há mais de uma linha publicada para o mesmo distrito no snapshot "
-                f"mais recente: {names}. Garanta uma linha por distrito."
-            )
+
+        metrics = _verify_audited_result(raw, internal_preview=internal_preview)
+        # Aliases usados pela interface existente; sem recalcular a segurança.
+        metrics["district_code"] = metrics["cd_dist"]
+        metrics["robbery_index"] = metrics["robberies_per_1000"]
         return metrics
 
     def load_history(self) -> pd.DataFrame:
-        """Não inventa uma série temporal a partir de snapshots sem data."""
+        """Não transforma snapshot em histórico anual fictício."""
         return pd.DataFrame(columns=_HISTORY_COLUMNS)

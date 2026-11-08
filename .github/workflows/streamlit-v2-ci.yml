@@ -1,0 +1,75 @@
+name: BairroIQ - Streamlit Consumer V2 CI
+
+on:
+  push:
+    branches: [main, "feature/**", "fix/**"]
+    paths:
+      - "streamlit/bairroiq-streamlit-v2/**"
+      - ".github/workflows/streamlit-v2-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "streamlit/bairroiq-streamlit-v2/**"
+      - ".github/workflows/streamlit-v2-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: streamlit-v2-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-contract:
+    name: Consumer V2 - sintaxe e testes offline
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: streamlit/bairroiq-streamlit-v2
+
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            streamlit/bairroiq-streamlit-v2/requirements.txt
+            streamlit/bairroiq-streamlit-v2/requirements-dev.txt
+
+      - name: Instalar dependências declaradas
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements-dev.txt
+
+      - name: Verificar sintaxe de aplicação, módulos e testes
+        run: |
+          python -m compileall -q app.py bairroiq pages tests
+
+      - name: Executar todos os testes offline do Streamlit V2
+        env:
+          BAIRROIQ_DATA_PROVIDER: sample
+          BAIRROIQ_INTERNAL_PREVIEW: "false"
+          STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+        run: |
+          python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Proteger configuração contra prévia pública
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app_config = Path("app.yaml").read_text(encoding="utf-8")
+          assert "workspace.gold.bairroiq_frontend_v2" in app_config
+          assert "BAIRROIQ_INTERNAL_PREVIEW" not in [
+              line.strip().removeprefix("- name:").strip()
+              for line in app_config.splitlines()
+              if line.strip().startswith("- name:")
+          ], "A flag de prévia interna não deve ser ativada no app.yaml."
+          print("BAIRROIQ_STREAMLIT_V2_CONFIG_PRIVADA_OK")
+          PY

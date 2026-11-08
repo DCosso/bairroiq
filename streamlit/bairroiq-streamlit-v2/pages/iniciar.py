@@ -343,11 +343,12 @@ if "personalize-objective-value" not in st.session_state:
 if "selected-neighborhoods" not in st.session_state:
     st.session_state["selected-neighborhoods"] = []
 
+# Valores são preferências ilustrativas, não probabilidades nem predições.
 objective_profiles = {
-    "Morar": {"trees": 75, "safety": 85, "mobility": 75, "budget": 100},
-    "Trabalhar": {"trees": 45, "safety": 70, "mobility": 100, "budget": 60},
-    "Investir": {"trees": 35, "safety": 55, "mobility": 90, "budget": 70},
-    "Negócios": {"trees": 30, "safety": 60, "mobility": 90, "budget": 55},
+    "Morar": {"trees": 85, "safety": 90, "mobility": 65, "infrastructure": 80},
+    "Trabalhar": {"trees": 45, "safety": 65, "mobility": 100, "infrastructure": 65},
+    "Investir": {"trees": 60, "safety": 60, "mobility": 80, "infrastructure": 80},
+    "Negócios": {"trees": 50, "safety": 65, "mobility": 85, "infrastructure": 85},
 }
 
 
@@ -362,7 +363,6 @@ def reset_scenario() -> None:
     for key, value in SCENARIO_DEFAULTS.items():
         st.session_state[f"scenario-value-{key}"] = value
         st.session_state[f"start-priority-{key}"] = value
-    st.session_state["start-budget"] = None
     st.session_state["personalize-objective-value"] = "Morar"
 
 
@@ -372,64 +372,16 @@ def sync_priority(key: str) -> None:
     )
 
 
-objective_columns = {
-    "Morar": "affordability_score",
-    "Trabalhar": "mobility_score",
-    "Investir": "formal_jobs_score",
-    "Negócios": "formal_jobs_score",
-}
-def affordability_threshold(monthly_budget: float | None) -> float:
-    if monthly_budget is None or monthly_budget <= 0:
-        return 0
-    if monthly_budget <= 3000:
-        return 80
-    if monthly_budget <= 5000:
-        return 72
-    if monthly_budget <= 7000:
-        return 65
-    if monthly_budget <= 10000:
-        return 55
-    if monthly_budget <= 20000:
-        return 45
-    return 35
-
-
-existing_budget = st.session_state.get("start-budget")
-if existing_budget is not None and not isinstance(existing_budget, (int, float)):
-    st.session_state["start-budget"] = None
-
-
 map_column, panel_column = st.columns([3.75, 1.0], gap="small")
 
 with map_column:
     with st.container(key="startup-map", border=True):
         weights = {key: int(st.session_state.get(f"scenario-value-{key}", default)) for key, default in SCENARIO_DEFAULTS.items()}
         scored = SCENARIO_SCORER.score_neighborhoods(metrics, weights)
-        selected_objective = st.session_state["personalize-objective-value"]
-        selected_budget = st.session_state.get("start-budget", None)
-        has_affordability = scored["affordability_score"].notna().any()
-        if has_affordability:
-            preview = scored[
-                scored["affordability_score"] >= affordability_threshold(selected_budget)
-            ].copy()
-        else:
-            preview = scored.copy()
-            st.info(
-                "O filtro por custo de vida ficará disponível quando esse indicador "
-                "for incluído na tabela publicada."
-            )
-        objective_column = objective_columns[selected_objective]
-        if preview[objective_column].notna().any():
-            preview["personalization_score"] = (
-                preview["priority_score"] * 0.7
-                + preview[objective_column] * 0.3
-            ).clip(0, 100)
-        else:
-            preview["personalization_score"] = preview["priority_score"]
-            st.info(
-                "O objetivo selecionado não tem indicador publicado; a prévia usa "
-                "a aderência geral até esse dado ser disponibilizado."
-            )
+        # O cenário V2 deriva exclusivamente dos quatro pesos visíveis.
+        # Botões de objetivos definem presets, sem bônus ocultos de 30%.
+        preview = scored.copy()
+        preview["personalization_score"] = preview["priority_score"]
         preview = preview.sort_values(
             "personalization_score",
             ascending=False,
@@ -451,7 +403,7 @@ with map_column:
         if preview.empty:
             st.info("Infelizmente não conseguimos localizar dados para as seleções solicitadas.")
 
-    st.markdown('<div class="section-heading">Bairros por zona</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-heading">Distritos por zona</div>', unsafe_allow_html=True)
     preview["zone"] = preview.apply(
         district_map_service.zone_for_neighborhood, axis=1
     )
@@ -534,18 +486,12 @@ with panel_column:
                         )
 
         with st.container(key="startup-budget", border=True):
-            st.markdown("#### Orçamento mensal")
-            st.number_input(
-                "Valor mensal opcional",
-                min_value=0,
-                max_value=50000,
-                value=None,
-                step=500,
-                key="start-budget",
-                placeholder="Ex.: 5000",
+            st.markdown("#### Informações complementares")
+            st.caption(
+                "Empregos formais e densidade populacional são exibidos "
+                "nas análises dos distritos, sem interferir no ranking. "
+                "Ainda não há dados de custo de vida validados."
             )
-            if st.session_state.get("start-budget") is None:
-                st.caption("Orçamento não informado — nenhuma faixa será aplicada.")
 
         with st.container(key="startup-priorities", border=True):
             st.markdown("#### Minhas prioridades")

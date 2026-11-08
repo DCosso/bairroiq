@@ -50,19 +50,19 @@ _THEME_PALETTES = {
     },
 }
 
+# As quatro prioridades afetam exclusivamente o ranking personalizado.
+# Empregos e densidade são indicadores descritivos; não têm peso implícito.
 SCENARIO_DEFAULTS = {
+    "trees": 25,
     "safety": 25,
-    "mobility": 20,
-    "infrastructure": 20,
-    "jobs": 15,
-    "budget": 20,
+    "mobility": 25,
+    "infrastructure": 25,
 }
 SCENARIO_LABELS = {
+    "trees": "Verde e lazer",
     "safety": "Segurança",
     "mobility": "Mobilidade",
-    "infrastructure": "Infraestrutura e serviços",
-    "jobs": "Empregos e oportunidades",
-    "budget": "Custo acessível",
+    "infrastructure": "Serviços públicos",
 }
 SEARCH_SUGGESTIONS = (
     "Praças em Regiões Menos Densas",
@@ -101,9 +101,9 @@ def _apply_search_suggestion() -> None:
 
 
 def _ensure_neighborhood_selection(neighborhoods: list[str]) -> None:
-    defaults = [name for name in ("Vila Mariana", "Pinheiros") if name in neighborhoods]
+    # Nenhuma seleção significa exibir todos os distritos elegíveis no mapa.
     if "selected-neighborhoods" not in st.session_state:
-        st.session_state["selected-neighborhoods"] = defaults or neighborhoods[:2]
+        st.session_state["selected-neighborhoods"] = []
     st.session_state["selected-neighborhoods"] = [
         name for name in st.session_state["selected-neighborhoods"]
         if name in neighborhoods
@@ -1522,16 +1522,16 @@ def render_header(active_page: str) -> None:
                     on_change=_apply_search_suggestion,
                 )
                 with neighborhood_filter:
-                    with st.popover("Quick Bairros ▾", width="stretch"):
+                    with st.popover("Escolher distritos ▾", width="stretch"):
                         st.multiselect(
                             "Distritos para analisar",
                             options=neighborhoods,
                             key="selected-neighborhoods",
-                            placeholder="Selecione os bairros",
+                            placeholder="Selecione os distritos",
                             on_change=_sync_comparison_selection,
                         )
                 with data_filter:
-                    with st.popover("Quick Filtros ▾", width="stretch"):
+                    with st.popover("Filtrar por interesses ▾", width="stretch"):
                         st.multiselect(
                             "Indicadores mínimos",
                             options=list(DISTRICT_FILTERS),
@@ -1541,23 +1541,20 @@ def render_header(active_page: str) -> None:
 
     if os.getenv("BAIRROIQ_DATA_PROVIDER", "sample").strip().lower() == "databricks":
         metrics = load_metrics()
-        missing_indicators = [
-            label
-            for label, column in (
-                ("Iluminação LED", "lighting_led"),
-                ("Arborização", "trees_score"),
-                ("Custo de vida", "affordability_score"),
-            )
-            if column not in metrics or not metrics[column].notna().any()
+        required = {
+            "Verde e lazer": "green_leisure_score",
+            "Segurança": "safety_score",
+            "Mobilidade": "mobility_score",
+            "Serviços públicos": "public_services_score",
+        }
+        missing = [
+            label for label, column in required.items()
+            if column not in metrics.columns or metrics[column].isna().any()
         ]
-        if missing_indicators:
-            st.warning(
-                "A integração Databricks está ativa. Para completar todos os "
-                "indicadores da interface, ainda faltam: "
-                f"{', '.join(missing_indicators)}. Os cálculos usam apenas "
-                "dimensões com dados publicados."
+        if missing:
+            st.error(
+                "A fonte auditada V2 não atende ao contrato visual: "
+                + ", ".join(missing)
             )
-        st.caption(
-            "A tabela conectada não contém histórico por ano; o gráfico temporal "
-            "será exibido quando uma fonte histórica estiver disponível."
-        )
+            st.stop()
+

@@ -1,183 +1,197 @@
+"""Testes sintéticos do Consumer físico auditado e conector Databricks.
+
+Rodar com: python -m unittest discover -s tests
+"""
+from __future__ import annotations
+
+import os
 import unittest
 from unittest.mock import patch
 
 import pandas as pd
 
-from bairroiq.databricks import DatabricksConfig, DatabricksDataProvider
+from bairroiq.consumer_v2 import SNAPSHOT
+from bairroiq.databricks import (
+    DatabricksConfig,
+    DatabricksDataProvider,
+    _EXPECTED_SQL_SHA256,
+    _payload_sha256,
+)
+
+
+DISTRIBUTION = (9, 7, 6, 22, 7, 8, 12, 19, 6)
+
+
+def fixture(*, authorized: bool = False) -> pd.DataFrame:
+    rows = []
+    for p, quantity in enumerate(DISTRIBUTION, start=1):
+        for _ in range(quantity):
+            index = len(rows)
+            rows.append({
+                "snapshot_id": SNAPSHOT,
+                "cd_dist": 355030801 + index,
+                "neighborhood": f"Distrito Sintético {index + 1:02d}",
+                "latitude": -23.5 - index / 1000,
+                "longitude": -46.5 - index / 1000,
+                "formal_jobs_score": float(index),
+                "safety_score": 50.0,
+                "mobility_score": 70.0,
+                "green_leisure_score": 60.0,
+                "public_services_score": 55.0,
+                "densidade_hab_km2": 1500.0 + index,
+                "robberies_per_1000": 2.5,
+                "perfil_id": f"kmeans-k09-p{p:02d}",
+                "cluster": f"P{p:02d} — Perfil Sintético",
+                "tipo_territorio": "DISTRITO_IBGE",
+                "publicacao_autorizada": authorized,
+            })
+    df = pd.DataFrame(rows)
+    df["versao_contrato"] = "frontend_v2.0.0"
+    df["payload_sha256"] = _payload_sha256(df)
+    df["sql_sha256"] = _EXPECTED_SQL_SHA256
+    df["materializado_em_utc"] = pd.Timestamp("2026-11-08T16:00:00Z")
+    return df
 
 
 class DatabricksConfigTests(unittest.TestCase):
-    def test_config_uses_app_warehouse_resource_and_default_table(self) -> None:
-        config = DatabricksConfig.from_sources(
-            environ={
-                "DATABRICKS_HOST": "https://workspace.example.com",
-                "DATABRICKS_WAREHOUSE_ID": "warehouse-123",
+    def test_default_table_is_the_new_physical_consumer(self):
+        c = DatabricksConfig.from_sources(environ={
+            "DATABRICKS_HOST": "https://workspace.example.com",
+            "DATABRICKS_WAREHOUSE_ID": "warehouse-123",
+        })
+        self.assertEqual(c.metrics_table, "`workspace`.`gold`.`bairroiq_frontend_v2`")
+        self.assertEqual(c.server_hostname, "workspace.example.com")
+        self.assertEqual(c.http_path, "/sql/1.0/warehouses/warehouse-123")
+        self.assertIsNone(c.access_token)
+
+    def test_secrets_and_table_override_still_work(self):
+        c = DatabricksConfig.from_sources({
+            "databricks": {
+                "server_hostname": "workspace.example.com",
+                "http_path": "/sql/1.0/warehouses/demo",
+                "access_token": "local-test-token",
+                "metrics_table": "analytics.frontend",
             }
-        )
+        }, environ={})
+        self.assertEqual(c.metrics_table, "`analytics`.`frontend`")
+        self.assertEqual(c.access_token, "local-test-token")
 
-        self.assertEqual(config.server_hostname, "workspace.example.com")
-        self.assertEqual(
-            config.http_path, "/sql/1.0/warehouses/warehouse-123"
-        )
-        self.assertEqual(
-            config.metrics_table,
-            "`workspace`.`gold`.`bairroiq_frontend_v1`",
-        )
-        self.assertIsNone(config.access_token)
-
-    def test_config_supports_local_secrets_and_table_override(self) -> None:
-        config = DatabricksConfig.from_sources(
-            {
-                "databricks": {
-                    "server_hostname": "workspace.example.com",
-                    "http_path": "/sql/1.0/warehouses/demo",
-                    "access_token": "local-test-token",
-                    "metrics_table": "analytics.frontend",
-                }
-            },
-            environ={},
-        )
-
-        self.assertEqual(
-            config.metrics_table, "`analytics`.`frontend`"
-        )
-        self.assertEqual(config.access_token, "local-test-token")
-
-    def test_table_names_reject_sql_fragments(self) -> None:
+    def test_rejects_sql_injection_table(self):
         with self.assertRaisesRegex(ValueError, "identificadores SQL"):
-            DatabricksConfig.from_sources(
-                environ={
-                    "DATABRICKS_HOST": "workspace.example.com",
-                    "DATABRICKS_WAREHOUSE_ID": "demo",
-                    "DATABRICKS_METRICS_TABLE": "metrics; DROP TABLE users",
-                }
-            )
+            DatabricksConfig.from_sources(environ={
+                "DATABRICKS_HOST": "workspace.example.com",
+                "DATABRICKS_WAREHOUSE_ID": "demo",
+                "DATABRICKS_METRICS_TABLE": "metrics; DROP TABLE users",
+            })
 
-    def test_query_maps_available_metrics_and_marks_missing_ones(self) -> None:
-        columns = [
-            "snapshot_id",
-            "district_code",
-            "neighborhood",
-            "latitude",
-            "longitude",
-            "perfil_id",
-            "cluster",
-            "tipo_territorio",
-            "formal_jobs_score",
-            "robbery_index",
-            "safety_score",
-            "mobility_score",
-            "lighting_led",
-            "trees_score",
-            "affordability_score",
-        ]
-        values = (
-            "2026-10-01",
-            1,
-            "Sé",
-            -23.55,
-            -46.63,
-            "perfil-1",
-            "central",
-            "denso",
-            80.0,
-            2.0,
-            85.0,
-            75.0,
-            None,
-            None,
-            None,
-        )
 
-        class Cursor:
-            description = [(column,) for column in columns]
+class DatabricksDataProviderTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.provider = DatabricksDataProvider(DatabricksConfig(
+            "workspace.example.com", "/sql/1.0/warehouses/demo",
+            "`workspace`.`gold`.`bairroiq_frontend_v2`",
+        ))
 
-            def execute(self, query: str) -> None:
-                self.query = query
+    def test_private_authorized_preview_reads_audited_v2(self):
+        raw = fixture(authorized=False)
+        captured = {}
 
-            def fetchall(self) -> list[tuple]:
-                return [values]
+        def read(query):
+            captured["query"] = query
+            return raw.copy()
 
-            def __enter__(self):
-                return self
+        with patch.dict(os.environ, {"BAIRROIQ_INTERNAL_PREVIEW": "true"}):
+            with patch.object(self.provider, "_read_query", side_effect=read):
+                metrics = self.provider.load_metrics()
+        self.assertEqual(len(metrics), 96)
+        self.assertEqual(metrics["perfil_id"].nunique(), 9)
+        self.assertFalse(metrics.isna().any().any())
+        self.assertEqual(metrics.iloc[0]["green_leisure_score"], 60.0)
+        self.assertEqual(metrics.iloc[0]["public_services_score"], 55.0)
+        self.assertEqual(metrics.iloc[0]["robbery_index"], 2.5)
+        self.assertTrue(metrics["district_code"].equals(metrics["cd_dist"]))
+        self.assertIn("`workspace`.`gold`.`bairroiq_frontend_v2`", captured["query"])
+        self.assertNotIn("bairroiq_fato_distrito_indicador", captured["query"])
+        self.assertNotIn("AND publicacao_autorizada IS TRUE", captured["query"])
 
-            def __exit__(self, *_args) -> None:
-                return None
+    def test_published_mode_requires_publication_flag(self):
+        raw = fixture(authorized=True)
+        captured = {}
 
-        class Connection:
-            def cursor(self) -> Cursor:
-                return Cursor()
+        def read(query):
+            captured["query"] = query
+            return raw.copy()
 
-            def __enter__(self):
-                return self
+        with patch.dict(os.environ, {"BAIRROIQ_INTERNAL_PREVIEW": "false"}):
+            with patch.object(self.provider, "_read_query", side_effect=read):
+                metrics = self.provider.load_metrics()
+        self.assertEqual(len(metrics), 96)
+        self.assertIn("AND publicacao_autorizada IS TRUE", captured["query"])
 
-            def __exit__(self, *_args) -> None:
-                return None
+    def test_unpublished_data_blocked_by_default(self):
+        with patch.dict(os.environ, {"BAIRROIQ_INTERNAL_PREVIEW": "false"}):
+            with patch.object(self.provider, "_read_query", return_value=fixture()):
+                with self.assertRaises(PermissionError):
+                    self.provider.load_metrics()
 
-        provider = DatabricksDataProvider(
-            DatabricksConfig(
-                "workspace.example.com",
-                "/sql/1.0/warehouses/demo",
-                "`workspace`.`gold`.`bairroiq_frontend_v1`",
-            )
-        )
-        with patch.object(provider, "_connect", return_value=Connection()):
-            metrics = provider.load_metrics()
+    def test_empty_table_result_raises(self):
+        with patch.dict(os.environ, {"BAIRROIQ_INTERNAL_PREVIEW": "false"}):
+            with patch.object(self.provider, "_read_query", return_value=pd.DataFrame()):
+                with self.assertRaisesRegex(ValueError, "sem registros acessíveis"):
+                    self.provider.load_metrics()
 
-        self.assertEqual(metrics.loc[0, "neighborhood"], "Sé")
-        self.assertEqual(metrics.loc[0, "safety_score"], 85.0)
-        self.assertTrue(
-            pd.isna(metrics.loc[0, "affordability_score"])
-        )
+    def test_detects_payload_tampering(self):
+        raw = fixture()
+        raw.loc[0, "mobility_score"] = 30.0
+        with patch.dict(os.environ, {"BAIRROIQ_INTERNAL_PREVIEW": "true"}):
+            with patch.object(self.provider, "_read_query", return_value=raw):
+                with self.assertRaisesRegex(ValueError, "Hash do conteúdo divergente"):
+                    self.provider.load_metrics()
 
-    def test_empty_published_snapshot_is_reported(self) -> None:
-        class Cursor:
-            description = [("neighborhood",)]
+    def test_detects_sql_hash_tampering(self):
+        raw = fixture()
+        raw["sql_sha256"] = "0" * 64
+        with patch.dict(os.environ, {"BAIRROIQ_INTERNAL_PREVIEW": "true"}):
+            with patch.object(self.provider, "_read_query", return_value=raw):
+                with self.assertRaisesRegex(ValueError, "Hash SQL"):
+                    self.provider.load_metrics()
 
-            def execute(self, _query: str) -> None:
-                return None
+    def test_detects_audit_row_divergence(self):
+        raw = fixture()
+        raw.loc[0, "versao_contrato"] = "v2.0.1"
+        with patch.dict(os.environ, {"BAIRROIQ_INTERNAL_PREVIEW": "true"}):
+            with patch.object(self.provider, "_read_query", return_value=raw):
+                with self.assertRaisesRegex(ValueError, "Auditoria incompleta"):
+                    self.provider.load_metrics()
 
-            def fetchall(self) -> list[tuple]:
-                return []
+    def test_detects_missing_metrics(self):
+        raw = fixture().drop(columns=["green_leisure_score"])
+        with patch.dict(os.environ, {"BAIRROIQ_INTERNAL_PREVIEW": "true"}):
+            with patch.object(self.provider, "_read_query", return_value=raw):
+                with self.assertRaisesRegex(ValueError, "Faltam colunas"):
+                    self.provider.load_metrics()
 
-            def __enter__(self):
-                return self
+    def test_does_not_synthesize_history(self):
+        h = self.provider.load_history()
+        self.assertEqual(len(h), 0)
+        self.assertIn("year", h.columns)
 
-            def __exit__(self, *_args) -> None:
-                return None
-
-        class Connection:
-            def cursor(self) -> Cursor:
-                return Cursor()
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args) -> None:
-                return None
-
-        provider = DatabricksDataProvider(
-            DatabricksConfig("workspace.example.com", "path", "`workspace`.`gold`.`table`")
-        )
-        with patch.object(provider, "_connect", return_value=Connection()):
-            with self.assertRaisesRegex(ValueError, "publicacao_autorizada"):
-                provider.load_metrics()
-
-    def test_oauth_connection_uses_the_app_service_principal(self) -> None:
-        from databricks import sql
-        from databricks.sdk.core import Config
-
-        provider = DatabricksDataProvider(
-            DatabricksConfig("workspace.example.com", "path", "`workspace`.`gold`.`table`")
-        )
+    def test_oauth_connection_uses_service_principal_when_sdk_available(self):
+        try:
+            from databricks import sql
+            from databricks.sdk.core import Config
+        except ImportError:
+            self.skipTest("SDK Databricks não instalado neste ambiente")
         with (
             patch.object(sql, "connect", return_value=None) as connect,
-            patch.object(Config, "__init__", return_value=None) as config_init,
-            patch.object(Config, "authenticate", create=True, new_callable=unittest.mock.PropertyMock),
+            patch.object(Config, "__init__", return_value=None) as cinit,
+            patch.object(
+                Config, "authenticate", create=True,
+                new_callable=unittest.mock.PropertyMock,
+            ),
         ):
-            provider._connect()
-
-        config_init.assert_called_once_with()
+            self.provider._connect()
+        cinit.assert_called_once_with()
         self.assertTrue(callable(connect.call_args.kwargs["credentials_provider"]))
         self.assertNotIn("access_token", connect.call_args.kwargs)
 

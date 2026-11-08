@@ -1,6 +1,12 @@
-# No Databricks Apps, adicione também um recurso SQL Warehouse chamado
-# "sql-warehouse" com permissão "Can use". A identidade do app precisa de
-# USE CATALOG, USE SCHEMA e SELECT na tabela workspace.gold.bairroiq_frontend_v1.
+# Atlas Sampa | BairroIQ | Consumer V2 físico auditado.
+# A identidade do Databricks App precisa de:
+# - Can use no SQL Warehouse associado ao recurso "sql-warehouse"
+# - USE CATALOG em workspace, USE SCHEMA em gold
+# - SELECT na tabela workspace.gold.bairroiq_frontend_v2
+# Não publicar a prévia: o snapshot ainda está com publicacao_autorizada=false.
+# Para testar a fotografia candidata, use SOMENTE um ambiente privado,
+# com acesso autorizado e BAIRROIQ_INTERNAL_PREVIEW=true configurado
+# conscientemente nessa instância. NÃO ativar isso em aplicativo público.
 command:
   - streamlit
   - run
@@ -12,6 +18,6 @@ env:
   - name: DATABRICKS_WAREHOUSE_ID
     valueFrom: sql-warehouse
   - name: DATABRICKS_METRICS_TABLE
-    value: workspace.gold.bairroiq_frontend_v1
+    value: workspace.gold.bairroiq_frontend_v2
   - name: STREAMLIT_BROWSER_GATHER_USAGE_STATS
     value: "false"
