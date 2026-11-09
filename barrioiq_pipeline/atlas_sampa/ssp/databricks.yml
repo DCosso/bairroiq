@@ -1,0 +1,12 @@
+bundle:
+  name: atlas_sampa_ssp_lambda
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-f6c8d1ce-35c1.cloud.databricks.com
