@@ -1,142 +1,278 @@
-
 # Atlas Sampa
 
 **Plataforma de inteligência territorial para explorar e comparar os 96 distritos administrativos da cidade de São Paulo.**
 
-O **Atlas Sampa** transforma dados públicos de origens distintas em uma experiência de análise territorial. O produto permite que uma pessoa explore características de distritos, compare indicadores e ajuste o peso de critérios como mobilidade, serviços públicos, verde e lazer e ocorrências registradas. O objetivo é tornar diferenças territoriais compreensíveis, sem apresentar uma classificação universal de melhores e piores regiões.
+O **Atlas Sampa** transforma dados públicos de origens distintas em uma experiência de análise territorial. O produto permite explorar características dos distritos, comparar indicadores e ajustar a importância de critérios como mobilidade, serviços públicos, verde e lazer e ocorrências criminais registradas. O objetivo é tornar diferenças territoriais compreensíveis, sem apresentar uma classificação universal de melhores e piores regiões.
 
+O código está organizado no repositório técnico **BairroIQ**, que reúne engenharia de dados, modelagem analítica, Machine Learning, infraestrutura, automação, governança e aplicação web. A distinção entre o nome comercial Atlas Sampa e o identificador técnico BairroIQ preserva a rastreabilidade dos artefatos e contratos já implementados, sem exigir alterações artificiais nas estruturas existentes.
 
-**Estado da entrega em novembro de 2026:** Lakehouse com dados reais implementado; Gold distrital auditada; Star Schema Delta materializado; experimentos de classificação territorial concluídos; Consumer V2 materializado; MVP Streamlit V2 demonstrado em ambiente privado; arquitetura Lambda de atualizações da SSP implementada e reconciliada. Os dados de recomendação permanecem em **homologação privada**. O aplicativo não está autorizado para disponibilização pública e o agendamento mensal da Lambda permanece **PAUSED** por decisão operacional.
+**Estado da implementação em novembro de 2026:** Lakehouse com dados reais implementado, Gold distrital auditada, Star Schema Delta materializado, modelos de agrupamento territorial comparados, Consumer V2 materializado, aplicativo Streamlit V2 homologado privadamente e arquitetura Lambda da SSP implementada com publicação reconciliada.
 
-## 1. O problema que buscamos resolver
+A solução adota processamento sob demanda e publicação analítica controlada. O processamento de novas versões da fonte não implica atualização automática da Gold, dos modelos ou do aplicativo. Essa separação é intencional, pois permite preservar a reprodutibilidade dos resultados e avaliar o impacto de alterações antes de incorporá-las ao produto.
 
-Escolher uma região para morar, investir ou estabelecer atividades depende de muito mais do que olhar um único número. A disponibilidade de transporte, a presença de serviços públicos, as condições urbanas, a dinâmica imobiliária e os registros de ocorrências criminais são dimensões diferentes. Cada uma nasce em uma fonte, com uma escala, uma granularidade territorial e um período de referência próprio.
+A disponibilização pública do aplicativo não está autorizada nesta versão, e o agendamento da Lambda permanece pausado.
 
-Essa fragmentação impede comparações simples e também cria um risco: tratar um indicador isolado como se fosse uma resposta definitiva. Por isso, em vez de desenvolver um ranking fixo de bairros, construímos uma base distrital auditável e um aplicativo que apresenta os dados e permite personalizar critérios. A interface compara distritos administrativos oficiais, não bairros comerciais cujos limites variam conforme a fonte.
+## 1. Problema de negócio
 
-O desenho do produto combina três decisões. A primeira é usar os **96 distritos oficiais de São Paulo** como unidade comum, porque possuem códigos geográficos estáveis e uma malha territorial verificável. A segunda é manter os indicadores originais e suas ressalvas disponíveis na camada analítica, mesmo quando a interface utiliza índices padronizados para comparação. A terceira é separar **segmentação territorial** de **preferência do usuário**: os perfis identificam semelhanças estatísticas; os pesos escolhidos pela pessoa determinam a ordenação personalizada, sem transformar clusters em notas de qualidade.
+A escolha de uma região para morar, investir ou estabelecer atividades depende de fatores que dificilmente podem ser avaliados por um único indicador. Mobilidade, infraestrutura urbana, serviços públicos, densidade populacional, dinâmica imobiliária e ocorrências criminais representam dimensões distintas do território.
+
+Embora existam fontes públicas relevantes para essas análises, os dados são disponibilizados em formatos diferentes, com granularidades geográficas incompatíveis e períodos de referência próprios.
+
+Essa fragmentação dificulta comparações consistentes e frequentemente leva à utilização isolada de indicadores que não representam integralmente as condições de uma região.
+
+O Atlas Sampa foi concebido para reduzir essas limitações por meio de uma arquitetura capaz de integrar dados heterogêneos, padronizar referências territoriais e disponibilizar informações analíticas em uma interface compreensível.
+
+A solução adota os **96 distritos administrativos oficiais do município de São Paulo** como unidade de análise.
+
+Essa escolha foi motivada pela existência de códigos geográficos estáveis, limites territoriais verificáveis e disponibilidade de indicadores públicos associados à divisão administrativa.
+
+A utilização de distritos também reduz a ambiguidade provocada pelos nomes de bairros comerciais, que podem variar entre fontes e não necessariamente possuem limites geográficos equivalentes.
+
+O produto não pretende determinar qual distrito é universalmente melhor. Em vez disso, disponibiliza informações comparáveis e permite que diferentes pessoas atribuam pesos distintos aos critérios que consideram importantes.
+
+Essa abordagem separa a interpretação dos dados da preferência individual, evitando transformar indicadores estatísticos em recomendações absolutas.
 
 ## 2. Resultados técnicos e escopo validado
 
-| Componente | Resultado ou situação |
+| Componente | Resultado |
 |---|---|
-| Recorte territorial | 96 distritos oficiais de São Paulo |
+| Abrangência territorial | 96 distritos oficiais de São Paulo |
 | Tabela analítica principal | `workspace.gold.distritos_wide` |
-| Granularidade da Gold | 1 linha por distrito |
-| Amplitude da Gold | 254 colunas, incluindo coordenadas |
-| Coordenadas geográficas | 96 de 96 distritos |
-| Modelagem dimensional | 4 dimensões e 3 fatos físicos em Delta Lake |
-| Modelo exploratório de perfis | K-Means com 9 grupos, comparado com Ward |
-| Consumer do MVP | `workspace.gold.bairroiq_frontend_v2`, 96 linhas e 20 campos |
-| Interface | Streamlit V2 homologado em demonstração privada |
-| Arquitetura Lambda SSP | Batch, Speed e Serving independentes da Gold oficial |
-| Auditoria da Serving SSP | 250.606 ocorrências, 9 meses, 96 distritos e 2 categorias |
-| Reconciliação SSP | 1.728 linhas Batch e 1.728 linhas Serving, com 0 divergências |
-| Agendamento Lambda | Configurado para dia 10 às 10h, fuso de São Paulo, mas pausado |
-| Integração e entrega | GitHub Actions e Databricks Asset Bundles com deploy controlado |
-| Infraestrutura como código | Terraform versionado e validado por CI |
+| Granularidade da Gold | Uma linha por distrito |
+| Atributos na Gold | 254 colunas |
+| Coordenadas geográficas | 96 distritos com latitude e longitude |
+| Modelo dimensional | 4 dimensões e 3 tabelas de fatos |
+| Machine Learning | K-Means com 9 grupos, comparado com Ward |
+| Consumer do aplicativo | `workspace.gold.bairroiq_frontend_v2` |
+| Estrutura do Consumer V2 | 96 registros e 20 campos |
+| Aplicativo | Streamlit V2 homologado privadamente |
+| Arquitetura Lambda | Batch, Speed e Serving no Databricks |
+| Publicação SSP validada | 250.606 ocorrências |
+| Cobertura SSP publicada | 96 distritos, 9 meses e 2 categorias |
+| Reconciliação Lambda | 1.728 linhas Batch e Serving, com 0 divergências |
+| CI/CD | GitHub Actions e Databricks Asset Bundles |
+| Infraestrutura como código | Terraform e HCP Terraform |
+| Observabilidade | Logs, auditorias, histórico de Jobs e tabelas Delta |
+| Política de atualização | Processamento sob demanda e publicação controlada |
 
-Esses números não se referem todos ao mesmo conjunto de dados. A **Gold oficial** é uma fotografia territorial construída a partir das fontes e períodos documentados na camada Silver. A **Serving da Lambda** é uma publicação privada e independente das versões do arquivo anual da SSP. Uma não atualiza a outra automaticamente. Preservar essa distinção impede que uma carga recém-processada altere silenciosamente os indicadores utilizados pelo aplicativo ou os perfis já calculados.
+Os resultados representam diferentes produtos de dados e não devem ser interpretados como se todos estivessem associados a uma mesma data de referência.
 
-Os resultados acima documentam a execução e a auditoria realizadas. Eles não significam que todas as fontes estejam atualizadas na mesma data, nem que o produto tenha recebido autorização para recomendação residencial pública.
+A Gold consolida os indicadores disponíveis no momento da construção de seu snapshot. A Serving da Lambda representa uma publicação independente e versionada da SSP.
+
+Essa separação preserva a consistência entre dados, modelos e consumidores analíticos.
 
 ## 3. Arquitetura da solução
 
-O projeto adota um **Lakehouse Medallion** para consolidar dados de diferentes formatos e um fluxo independente de **arquitetura Lambda** para demonstrar tratamento de republicações da SSP. Os dois desenhos coexistem porque resolvem problemas diferentes. Bronze, Silver e Gold organizam qualidade e transformação de dados; Batch, Speed e Serving tratam a recomputação e a reconciliação entre versões de uma fonte.
+O Atlas Sampa utiliza uma arquitetura **Data Lakehouse baseada no padrão Medallion**, implementada no Databricks com Apache Spark, Delta Lake e Unity Catalog.
 
-A implementação é composta por dois fluxos independentes. No **fluxo territorial principal**, os dados das fontes públicas atravessam Raw, Bronze e Silver até formar a Gold distrital, que sustenta a modelagem dimensional, os experimentos de Machine Learning e o Consumer V2 utilizado pelo Streamlit. No **fluxo privado da SSP**, novas versões da publicação anual são coletadas e tratadas em Bronze e Silver próprias; os caminhos Batch e Speed são reconciliados antes da publicação da Serving. Essa Serving não alimenta automaticamente a Gold oficial, porque a promoção de um novo recorte temporal exige validação dos indicadores, versionamento e revisão dos componentes dependentes.
+O fluxo principal organiza os dados nas camadas Raw, Bronze, Silver e Gold. A partir da Gold são disponibilizados modelos dimensionais, experimentos de Machine Learning e uma camada específica de consumo para o aplicativo.
 
-O processamento utiliza **Databricks, Apache Spark e Delta Lake**. Spark foi escolhido para oferecer um motor comum a ingestão, transformações, validações distribuídas e consultas analíticas. Delta Lake fornece armazenamento transacional por tabela, evolução controlada de versões e a possibilidade de verificar conteúdos já materializados antes de reprocessar. O **Unity Catalog** centraliza namespaces, permissões e metadados, de modo que contratos e responsabilidades não fiquem escondidos dentro de notebooks isolados.
+Paralelamente, foi implementada uma arquitetura Lambda para processar versões da base de ocorrências criminais da SSP.
 
-A arquitetura foi deliberadamente organizada em **produtos de dados com contratos explícitos**. A Gold conserva a amplitude analítica, o Star Schema oferece relações apropriadas para consultas OLAP e o Consumer V2 entrega um conjunto pequeno e estável de campos à interface. Essa separação facilita testar, versionar e explicar cada camada sem obrigar o frontend a reproduzir regras de transformação complexas.
+A coexistência dessas duas arquiteturas não representa duplicação desnecessária de componentes. Elas atendem a responsabilidades distintas.
 
-### 3.1. Tecnologias e decisões
+O Lakehouse organiza a ingestão, transformação, qualidade e disponibilização analítica de múltiplas fontes. A Lambda resolve especificamente o problema de processar republicações de dados, identificar alterações e reconciliar diferentes versões de uma mesma fonte.
 
-| Tecnologia | Papel e motivo da escolha |
+### 3.1. Por que utilizar uma arquitetura Lakehouse
+
+A escolha do Lakehouse foi motivada pela necessidade de trabalhar com dados heterogêneos, incluindo arquivos tabulares, indicadores estatísticos, dados geográficos e informações estruturadas.
+
+Uma arquitetura baseada exclusivamente em banco de dados relacional exigiria maior adaptação inicial dos diferentes formatos de entrada. Por outro lado, um Data Lake sem mecanismos de controle transacional dificultaria a garantia de consistência entre versões e processos.
+
+O Lakehouse combina a flexibilidade de armazenamento de um Data Lake com recursos de organização, versionamento e consulta associados a ambientes analíticos estruturados.
+
+O **Delta Lake** foi escolhido por oferecer controle transacional por tabela, histórico de versões e operações verificáveis de escrita.
+
+O **Apache Spark**, por sua vez, fornece um mecanismo comum para processamento, transformação e validação dos dados, permitindo utilizar Python e SQL na mesma arquitetura.
+
+O **Unity Catalog** organiza os objetos, seus metadados, contratos e permissões de acesso, reduzindo a dependência de conhecimento informal sobre o significado de cada tabela.
+
+### 3.2. Separação entre processamento e publicação
+
+Uma decisão importante foi não tratar a conclusão de uma ingestão como autorização automática para atualizar todos os consumidores.
+
+O Atlas Sampa trabalha com indicadores que possuem diferentes frequências de atualização e diferentes períodos estatísticos.
+
+Enquanto os dados censitários apresentam ciclos longos de atualização, bases imobiliárias e registros de ocorrências podem ser modificados com maior frequência.
+
+Entretanto, **a frequência de atualização de uma fonte não é necessariamente igual à frequência necessária de atualização do produto analítico**.
+
+Um novo arquivo pode conter registros adicionais sem alterar substancialmente os indicadores consolidados. Em outros casos, uma alteração relativamente pequena pode afetar posições em rankings ou a composição de determinados clusters.
+
+Por esse motivo, o processamento de novas versões foi desacoplado da publicação da Gold e dos consumidores.
+
+O objetivo não é presumir que mudanças frequentes sejam estatisticamente irrelevantes, mas permitir que sua relevância seja avaliada antes da promoção.
+
+Essa separação também reduz reprocessamentos desnecessários, controla o consumo computacional e preserva a capacidade de reproduzir resultados anteriores.
+
+## 4. Tecnologias e decisões técnicas
+
+| Tecnologia | Aplicação e justificativa |
 |---|---|
-| Python e SQL | Python concentra validação, ingestão e lógica geoespacial; SQL torna agregações e regras de dados inspecionáveis |
-| PySpark | Processamento distribuído e contratos de escrita para Bronze, Silver e Gold |
-| Delta Lake | Persistência versionável, reconciliação e reexecuções controladas |
-| Unity Catalog | Organização de tabelas, metadados, permissões e linhagem quando disponível |
-| GeoPandas e ferramentas geoespaciais | Associação de coordenadas à malha oficial, com verificação de CRS e geometrias |
-| scikit-learn | Comparação reproduzível de métodos clássicos de agrupamento territorial |
-| Databricks Asset Bundles | Definições versionadas de Jobs e promoção controlada de código |
-| Terraform e HCP Terraform | Descrição declarativa de schemas e Volume Raw e validação de infraestrutura |
-| GitHub Actions | Testes e validações antes de integrar e implantar mudanças |
-| Streamlit e Plotly | MVP navegável, com filtros, mapas, critérios personalizados e gráficos comparativos |
+| Python | Ingestão, validações, transformação e processamento geoespacial |
+| SQL | Transformações declarativas, agregações e auditorias |
+| Apache Spark e PySpark | Processamento distribuído e integração das camadas |
+| Delta Lake | Persistência transacional, histórico e versionamento |
+| Databricks | Ambiente integrado de processamento e execução |
+| Unity Catalog | Organização, metadados e controle de acesso |
+| GeoPandas | Operações espaciais e associação de coordenadas aos distritos |
+| OpenStreetMap | Apoio à correspondência territorial de localidades imobiliárias |
+| scikit-learn | Modelagem e avaliação de agrupamentos territoriais |
+| GitHub | Versionamento, revisão e integração de código |
+| GitHub Actions | Testes automatizados, validação e deploy controlado |
+| Databricks Asset Bundles | Definição declarativa de Jobs e distribuição de código |
+| Terraform | Definição de recursos de infraestrutura |
+| HCP Terraform | Gerenciamento do estado e execução de infraestrutura como código |
+| Streamlit | Desenvolvimento da experiência web |
+| Plotly | Visualização interativa e comparação de indicadores |
 
-A implementação foi concebida para aproveitar os recursos de desenvolvimento disponíveis e não depender de um serviço pago dedicado para cada função. Isso não significa que compute, SQL Warehouse ou Databricks Apps tenham custo zero em qualquer ambiente. Por esse motivo, o processamento é controlado, os snapshots são reutilizados quando idênticos e os agendamentos permanecem desativados até decisão explícita de operação.
+A seleção das tecnologias priorizou integração entre componentes, reprodutibilidade, facilidade de validação e compatibilidade com os recursos de desenvolvimento disponíveis.
 
-## 4. Fontes, granularidade e integração territorial
+O projeto não depende de uma infraestrutura dedicada de streaming contínuo para atender ao comportamento das fontes utilizadas.
 
-| Fonte | Informação utilizada | Cuidado de interpretação |
+Essa decisão reduz a complexidade operacional, embora não elimine a necessidade de validar custos de processamento, SQL Warehouse e hospedagem da aplicação em cada ambiente.
+
+## 5. Fontes de dados e integração territorial
+
+O produto integra informações de diferentes fontes, preservando suas características e limitações metodológicas.
+
+| Fonte | Dados utilizados | Considerações |
 |---|---|---|
-| IBGE e malha distrital 2022 | População, domicílios, densidade, limites e identificação oficial | Distrito administrativo não é sinônimo de bairro de anúncio imobiliário |
-| GeoSampa | Equipamentos e referências de infraestrutura urbana | Equipamento cadastrado não mede capacidade, frequência ou qualidade do serviço |
-| ObservaSampa | Indicadores socioeconômicos e urbanos | Cada indicador possui período de referência próprio; empregos formais usados no modelo têm referência de 2021 |
-| SSP-SP | Registros de roubos, furtos e outras ocorrências | Registros não equivalem a todos os eventos reais nem representam risco individual |
-| Mercado imobiliário | Estoque e indicadores de anúncios | Cobertura territorial depende de correspondências aprovadas |
-| OpenStreetMap | Referências de localização de bairros | É apoio geográfico à associação, não uma fonte oficial dos limites dos distritos |
+| IBGE | População, domicílios, densidade e malha territorial | Referência oficial dos distritos |
+| GeoSampa | Equipamentos e infraestrutura urbana | Equipamentos cadastrados não representam necessariamente capacidade de atendimento |
+| ObservaSampa | Indicadores socioeconômicos e urbanos | Períodos de referência variam por indicador |
+| SSP-SP | Ocorrências criminais | Registros administrativos não equivalem à totalidade dos eventos reais |
+| Mercado imobiliário | Estoque e indicadores de anúncios | Cobertura geográfica parcial |
+| OpenStreetMap | Referências geográficas de localidades | Utilizado como apoio à associação territorial |
 
-O maior obstáculo de integração não era simplesmente reunir arquivos. As fontes utilizam **unidades territoriais diferentes**. Um nome de bairro presente em anúncios pode não coincidir com o nome de um distrito, e uma correspondência baseada somente em texto poderia atribuir imóveis ao lugar errado. Foi criado um processo de associação de localidades imobiliárias a distritos, com referências OSM, geração de candidatos, revisão e aprovação explícita.
+### 5.1. Padronização geográfica
 
-Na última auditoria documentada dessa associação, existiam **1.626 localidades imobiliárias**, das quais **93 correspondências estavam aprovadas**. O estoque total considerado era de **70.706**, com **28.085 unidades de estoque associadas**, equivalentes a **39,72%**. A diferença não foi preenchida por suposições, porque números aparentemente completos com endereçamento incerto prejudicariam a confiabilidade do produto. Os indicadores imobiliários precisam ser lidos à luz dessa cobertura parcial; eles não são representativos de todo o município por construção.
+Um dos principais desafios foi integrar fontes que utilizam diferentes identificadores territoriais.
 
-O mesmo princípio foi aplicado às ocorrências da SSP. A associação espacial utiliza latitude, longitude, sistema de referência geográfica e o polígono distrital oficial. Registros sem associação válida são auditados, não atribuídos por aproximação arbitrária. A malha é validada para **96 códigos distritais distintos**. O cálculo dos centroides utiliza a projeção métrica **EPSG:31983** e publica coordenadas em **EPSG:4326**, evitando calcular o centro geométrico diretamente em graus geográficos.
+A divisão oficial do IBGE considera 96 distritos administrativos. Já algumas bases imobiliárias utilizam nomes comerciais de bairros, que não possuem correspondência direta com os distritos.
 
-## 5. Engenharia de dados: Raw, Bronze, Silver e Gold
+Uma associação exclusivamente textual poderia produzir correspondências incorretas e distorcer os indicadores.
 
-### Raw e Bronze
+Para reduzir esse risco, foi desenvolvido um processo de identificação de localidades, consulta a referências geográficas e validação explícita das associações.
 
-A Raw preserva os arquivos de origem e os metadados de coleta. A Bronze representa o ponto de entrada estruturado para as transformações. A opção por preservar a versão recebida, em vez de sobrescrever o arquivo anterior, permite auditar mudanças feitas pela fonte pública e reproduzir um processamento com o mesmo conteúdo.
+Na última auditoria documentada foram identificadas:
 
-A ingestão não usa a data da execução como identidade do dado. Onde há versionamento de arquivos, o **SHA256 do conteúdo** identifica a publicação; onde há linha de origem, a aba e a posição são mantidas como identidade dentro daquela publicação. Isso reduz duplicações em reexecuções e evita tratar uma alteração da fonte como se fosse um dado totalmente novo sem histórico.
+| Indicador | Resultado |
+|---|---:|
+| Localidades imobiliárias | 1.626 |
+| Correspondências aprovadas | 93 |
+| Estoque total | 70.706 |
+| Estoque associado | 28.085 |
+| Cobertura do estoque | 39,72% |
 
-### Silver
+A cobertura parcial foi mantida explicitamente.
 
-A Silver implementa padronização, validação de tipos, tratamento de referências geográficas e consolidação da informação no grão adequado. A camada não preenche ausências com valores artificiais apenas para produzir um dataset sem nulos. Sempre que um indicador depende de cobertura parcial, denominador específico ou período de referência, essa condição é preservada no contrato e na documentação.
+Não foram realizadas atribuições arbitrárias dos imóveis sem correspondência aprovada, pois aumentar artificialmente a cobertura comprometeria a confiabilidade analítica.
 
-Os runners das fontes IBGE, GeoSampa, ObservaSampa, imóveis e SSP são separados porque cada fonte possui regras de extração e validação próprias. Essa separação facilita localizar problemas de qualidade e impede que uma mudança no layout de um fornecedor afete silenciosamente toda a cadeia de dados.
+### 5.2. Associação espacial das ocorrências
 
-### Gold Wide
+A associação geográfica das ocorrências utiliza coordenadas e a malha distrital oficial.
 
-A tabela `workspace.gold.distritos_wide` consolida **96 registros e 254 atributos**. Foi adotado um modelo **Wide Table** porque o objetivo principal desta camada é consultar rapidamente um distrito e obter suas características lado a lado, inclusive como entrada para experimentos de Machine Learning. O código oficial `CD_DIST` garante uma linha por distrito, independentemente de diferenças de grafia nos nomes.
+As geometrias são verificadas quanto à validade, sistema de referência e correspondência com os códigos oficiais dos distritos.
 
-A Gold não cria uma data universal para os 254 atributos. Cada indicador utiliza a referência mais recente **disponível na fonte usada na construção do snapshot**, que pode ser diferente das demais. Não existe uma série temporal única nessa tabela. Incluir uma coluna de data de execução como se fosse a data de observação distorceria a interpretação de indicadores históricos. O histórico técnico de versões Delta não substitui o período estatístico de cada fonte.
+O processamento dos centroides utiliza **EPSG:31983** para cálculos métricos, com transformação posterior para **EPSG:4326**, utilizado na representação geográfica.
 
-A tabela possui documentação de campos, definições, unidades, limitações e regras de transformação no [dicionário de dados da Gold](docs/dicionario_gold_distritos_wide.md), além do [contrato estruturado em JSON](docs/dicionario_gold_distritos_wide.json). Também foram implementadas verificações de schema, cardinalidade, integridade, georreferenciamento e consistência da reconstrução a partir das fontes.
+Essa estratégia evita realizar cálculos de centroide diretamente sobre coordenadas expressas em graus.
 
-```sql
-SELECT
-    CD_DIST,
-    NM_DIST,
-    latitude,
-    longitude,
-    ibge_total_pessoas
-FROM workspace.gold.distritos_wide
-ORDER BY NM_DIST;
-```
+Registros sem correspondência espacial válida são preservados para auditoria e não são distribuídos arbitrariamente entre distritos.
 
-## 6. Modelagem dimensional: Star Schema
+## 6. Engenharia de dados e arquitetura Medallion
 
-A Wide Table é apropriada para leitura rápida e para o treinamento dos modelos, mas não é a melhor forma de representar todas as relações analíticas. Por isso foi materializado um **modelo dimensional Delta**, com dimensões e fatos próprios, que permite consultar indicadores, perfis e prioridades por distrito sem repetir metadados descritivos em cada análise.
+### 6.1. Raw e Bronze
 
-| Tabela Delta em `workspace.gold` | Grão ou responsabilidade | Registros no snapshot validado |
+A camada Raw preserva arquivos de origem e metadados de coleta.
+
+A Bronze representa a primeira estruturação dos dados, mantendo informações suficientes para reconstruir a transformação realizada nas camadas seguintes.
+
+Essa separação foi adotada porque arquivos públicos podem ser republicados com alterações retroativas.
+
+Sobrescrever arquivos anteriores impediria identificar diferenças entre versões e dificultaria a reprodução de resultados históricos.
+
+Quando aplicável, utiliza-se SHA256 para identificar o conteúdo da publicação, independentemente do nome do arquivo ou da data em que foi coletado.
+
+A combinação de identificadores de versão e informações de origem permite controlar reexecuções e distinguir registros pertencentes a publicações diferentes.
+
+### 6.2. Silver
+
+A camada Silver concentra tratamento, padronização e enriquecimento.
+
+Nela são executadas verificações de tipos, chaves, cardinalidade, cobertura e consistência geográfica.
+
+Os processos foram separados por fonte porque cada conjunto de dados possui regras próprias.
+
+Essa decisão reduz o acoplamento entre integrações e permite identificar falhas específicas sem comprometer silenciosamente as demais fontes.
+
+Valores ausentes não são automaticamente convertidos em zero, pois ausência de informação e valor numérico nulo podem possuir significados diferentes.
+
+### 6.3. Gold Wide
+
+A principal tabela analítica é:
+
+`workspace.gold.distritos_wide`
+
+Ela possui **96 registros e 254 atributos**, mantendo uma linha por distrito administrativo.
+
+A escolha de uma Wide Table foi motivada pelo padrão de consumo analítico do produto.
+
+Consultas territoriais frequentemente precisam recuperar diversas características de um distrito simultaneamente. Para Machine Learning, também é conveniente trabalhar com observações organizadas em linhas e atributos disponíveis em colunas.
+
+Uma estrutura ampla facilita esse tipo de consumo e reduz a necessidade de reconstruir repetidamente relações entre tabelas durante os experimentos.
+
+A chave territorial é o código oficial `CD_DIST`, evitando dependência de nomes que possam apresentar diferenças de grafia.
+
+### 6.4. Temporalidade da Gold
+
+A Gold representa uma fotografia analítica construída com os indicadores disponíveis nas fontes.
+
+Ela não possui uma única data estatística válida para todos os atributos.
+
+Dados censitários, indicadores socioeconômicos, ocorrências criminais e informações imobiliárias podem possuir períodos distintos.
+
+Criar uma coluna universal com a data da execução produziria uma interpretação incorreta, pois a data do processamento não corresponde necessariamente ao período de observação.
+
+Por esse motivo, a Gold preserva os indicadores consolidados sem fabricar uma referência temporal única.
+
+O histórico técnico do Delta Lake permite rastrear versões da tabela, mas não substitui a documentação dos períodos estatísticos de cada fonte.
+
+O dicionário de dados detalha as definições, unidades, origens, cálculos e limitações das 254 colunas.
+
+**Documentação:** [Dicionário completo da Gold](docs/dicionario_gold_distritos_wide.md).
+
+## 7. Modelagem dimensional: Star Schema
+
+A Wide Table foi construída para facilitar consultas territoriais amplas e experimentos analíticos.
+
+Entretanto, ela não substitui uma modelagem dimensional apropriada para análises OLAP.
+
+Por essa razão, o Atlas Sampa também possui um modelo dimensional materializado em Delta Lake, organizado como uma constelação de fatos.
+
+A modelagem permite representar separadamente distritos, indicadores, perfis e prioridades, preservando os relacionamentos e a granularidade de cada estrutura.
+
+| Tabela | Responsabilidade | Registros |
 |---|---|---:|
-| `bairroiq_dim_snapshot` | Versão, hash e disponibilidade do snapshot | 1 |
-| `bairroiq_dim_distrito` | Distrito por snapshot | 96 |
-| `bairroiq_dim_perfil` | Cadastro de perfis territoriais | 9 |
+| `bairroiq_dim_snapshot` | Controle de snapshots | 1 |
+| `bairroiq_dim_distrito` | Identificação dos distritos | 96 |
+| `bairroiq_dim_perfil` | Cadastro dos perfis | 9 |
 | `bairroiq_dim_indicador` | Metadados dos indicadores | 11 |
-| `bairroiq_fato_distrito_indicador` | Distrito, indicador e snapshot | 1.056 |
-| `bairroiq_fato_distrito_perfil` | Associação de distrito ao perfil | 96 |
-| `bairroiq_fato_prioridade_ocorrencias` | Prioridade relativa de registros de crimes | 96 |
+| `bairroiq_fato_distrito_indicador` | Indicadores por distrito | 1.056 |
+| `bairroiq_fato_distrito_perfil` | Associação aos perfis | 96 |
+| `bairroiq_fato_prioridade_ocorrencias` | Prioridade relativa de ocorrências | 96 |
 | **Total** | **4 dimensões e 3 fatos** | **1.365** |
 
-A presença de `snapshot_id` nas chaves evita unir dados de versões diferentes como se fossem uma única fotografia. A dimensão de snapshot é registrada por último, após as validações das demais tabelas. Essa decisão protege o consumo contra uma execução parcialmente concluída, embora as sete escritas não sejam uma transação única entre tabelas.
+A utilização do identificador `snapshot_id` nas relações evita combinar registros produzidos a partir de fotografias diferentes.
 
-Também evitamos criar uma dimensão calendário fictícia a partir da data da execução. Como a Gold agrega indicadores com períodos diferentes, uma `dim_data` única sugeriria uma temporalidade que os dados não possuem. Para análises de tendência, a referência adequada é uma Silver que preserve explicitamente o período original.
+A dimensão de snapshot é registrada somente após as validações das demais estruturas, funcionando como marcador de conclusão.
 
-Uma consulta OLAP pode recuperar os indicadores por distrito e unidade sem confundir taxas com quantidades aditivas:
+Essa estratégia reduz o risco de consumo de materializações incompletas, embora as escritas nas diferentes tabelas não constituam uma única transação.
+
+Também foi evitada a criação de uma dimensão calendário artificial a partir da data de execução, já que a Gold contém indicadores de períodos distintos.
+
+Uma consulta OLAP sobre o modelo pode recuperar indicadores, distritos e unidades mantendo a rastreabilidade:
 
 ```sql
 SELECT
@@ -146,46 +282,84 @@ SELECT
     f.valor_numerico
 FROM workspace.gold.bairroiq_fato_distrito_indicador f
 JOIN workspace.gold.bairroiq_dim_distrito d
-  ON f.snapshot_id = d.snapshot_id
- AND f.CD_DIST = d.CD_DIST
+    ON f.snapshot_id = d.snapshot_id
+   AND f.CD_DIST = d.CD_DIST
 JOIN workspace.gold.bairroiq_dim_indicador i
-  ON f.snapshot_id = i.snapshot_id
- AND f.indicador_sk = i.indicador_sk
+    ON f.snapshot_id = i.snapshot_id
+   AND f.indicador_sk = i.indicador_sk
 ORDER BY distrito, indicador;
 ```
 
-O modelo, as regras de escrita protegida e os controles de qualidade estão descritos no [contrato do Star Schema](docs/modelagem/star_schema_v1_delta_contrato.md).
+O contrato de materialização e as regras de integridade estão documentados em [Star Schema Delta](docs/modelagem/star_schema_v1_delta_contrato.md).
 
-## 7. Machine Learning: identificação de perfis territoriais
+## 8. Machine Learning e perfis territoriais
 
-O problema de Machine Learning não foi tratado como previsão de onde alguém deve morar. A ausência de uma variável objetivo confiável para esse tipo de recomendação tornaria inadequado treinar um modelo supervisionado com rótulos inventados. Utilizamos **clusterização não supervisionada** para investigar padrões de similaridade entre os distritos e apresentar opções de exploração.
+O componente de Machine Learning tem como objetivo identificar semelhanças entre os distritos administrativos.
 
-Comparamos **K-Means** e **agrupamento hierárquico Ward** sobre dados padronizados. Ambos dependem de distâncias e são sensíveis à escolha de variáveis e escala, portanto a comparação não foi reduzida a uma única métrica. Foram avaliados valores de `K` entre 2 e 12, tamanhos dos grupos, estabilidade sob subamostragem, distribuição territorial e capacidade de explicar os perfis a usuários não técnicos.
+O projeto não dispõe de uma variável objetivo que permita determinar, de forma confiável, qual região seria ideal para determinada pessoa.
 
-### 7.1. Por que K-Means e por que nove grupos
+Criar rótulos supervisionados sem uma referência verificável introduziria premissas subjetivas no treinamento.
 
-O objetivo inicial do produto era oferecer aproximadamente **dez perfis**, mas esse número é uma preferência de navegação, não uma propriedade comprovada dos dados. A análise com dez grupos gerou grupos muito pequenos, inclusive agrupamentos unitários. Manter `K=10` apenas para cumprir uma meta visual significaria oferecer tipos territoriais frágeis e difíceis de explicar.
+Por esse motivo, a abordagem selecionada foi **clusterização não supervisionada**.
 
-A configuração candidata **K-Means com nove grupos** foi escolhida porque mantém tamanhos entre **6 e 22 distritos**, apresenta somente **três distritos com Silhouette individual negativa** e permite uma representação de perfis que pode ser consultada de forma repetível. O K-Means também oferece centroides no espaço de atributos e uma estratégia operacional simples para classificação futura, desde que o tratamento dos dados e a versão do modelo sejam preservados.
+Foram comparados os algoritmos **K-Means** e **agrupamento hierárquico Ward**, utilizando variáveis padronizadas e avaliações de diferentes quantidades de grupos.
 
-Isso **não significa que K-Means seja estatisticamente superior ao Ward em tudo**. No experimento comparável documentado, Ward com oito grupos apresentou Davies-Bouldin menor e estabilidade ARI maior. O tradeoff adotado privilegiou uma granularidade de produto próxima ao objetivo, a ausência de grupos minúsculos na opção selecionada e a facilidade de operacionalização. A separação global do K-Means K9 continua modesta e os perfis permanecem exploratórios.
+### 8.1. Por que comparar K-Means e Ward
 
-| Métrica | Como interpretar | K-Means K9 | Ward K8 |
+K-Means e Ward utilizam abordagens diferentes para organizar observações em grupos.
+
+O K-Means busca centros representativos e atribui observações conforme a distância a esses centros.
+
+Ward constrói agrupamentos hierárquicos por fusões sucessivas, procurando controlar o aumento da variabilidade interna.
+
+A comparação entre ambos permite avaliar como diferentes estratégias de agrupamento respondem ao conjunto de características territoriais.
+
+Foram analisados valores de `K` entre 2 e 12, considerando métricas de separação, distribuição dos grupos, estabilidade e interpretabilidade.
+
+A seleção não foi determinada exclusivamente pelo maior valor de Silhouette.
+
+### 8.2. Por que escolhemos K-Means com nove grupos
+
+O produto tinha como objetivo inicial oferecer aproximadamente dez perfis territoriais.
+
+Entretanto, esse número representava uma preferência de experiência do usuário, não uma quantidade de agrupamentos naturais previamente comprovada.
+
+Nos experimentos com dez grupos surgiram agrupamentos muito pequenos, incluindo grupos unitários.
+
+Isso dificultaria a interpretação e poderia criar categorias pouco representativas.
+
+A configuração candidata **K-Means K9** apresentou uma distribuição de 6 a 22 distritos por grupo, sem grupos unitários e com somente três observações apresentando Silhouette individual negativa.
+
+Além disso, K-Means oferece vantagens operacionais para classificar novas observações quando o tratamento dos dados e os parâmetros do modelo são preservados.
+
+O algoritmo Ward apresentou resultados superiores em algumas métricas, especialmente estabilidade e Davies-Bouldin na configuração comparada.
+
+Portanto, a escolha do K-Means não representa superioridade estatística universal.
+
+Ela representa um compromisso entre granularidade do produto, distribuição dos grupos, facilidade operacional e interpretabilidade.
+
+### 8.3. Avaliação dos modelos
+
+| Métrica | Interpretação | K-Means K9 | Ward K8 |
 |---|---|---:|---:|
-| Silhouette | Mede coesão e separação; maior é melhor, mas valores próximos de zero indicam sobreposição | 0,194467 | 0,193960 |
-| Davies-Bouldin | Mede similaridade entre grupos segundo dispersão e separação; menor é melhor | 1,334164 | 1,202354 |
-| Calinski-Harabasz | Compara dispersão entre e dentro dos grupos; maior é melhor para cenários comparáveis | 27,193823 | Não consolidado nesta tabela |
-| ARI mediana de estabilidade | Concordância de partições em reamostragens; valores maiores indicam maior estabilidade | 0,470918 | 0,629504 |
-| Menor grupo | Verifica a existência de segmentos pouco representados | 6 | 4 |
-| Maior grupo | Mostra concentração da segmentação | 22 | 23 |
+| Silhouette | Coesão e separação, quanto maior melhor | 0,194467 | 0,193960 |
+| Davies-Bouldin | Similaridade entre grupos, quanto menor melhor | 1,334164 | 1,202354 |
+| Calinski-Harabasz | Relação entre dispersão interna e entre grupos | 27,193823 | Não consolidado nesta comparação |
+| ARI mediana | Estabilidade da classificação sob reamostragem | 0,470918 | 0,629504 |
+| Menor grupo | Número mínimo de distritos em um cluster | 6 | 4 |
+| Maior grupo | Número máximo de distritos em um cluster | 22 | 23 |
 
-Os resultados acima correspondem às configurações registradas na metodologia, incluindo variações de tratamento de densidade. Não devem ser lidos como um experimento causal isolando apenas o algoritmo. O índice Silhouette também **não é acurácia**: não existe um conjunto de rótulos verdadeiros dos perfis territoriais para medir acertos ou erros.
+As métricas correspondem às configurações documentadas dos experimentos e incluem diferenças de tratamento de variáveis. Portanto, a comparação não isola exclusivamente o efeito do algoritmo.
 
-A análise mais simples com poucos clusters chegou a produzir valores de Silhouette maiores, mas grupos amplos demais para representar a diversidade de experiências da interface. Da mesma forma, escolher dez ou onze agrupamentos somente para aumentar o número de opções comprometeria a interpretabilidade. Nove grupos foi um compromisso operacional explicitamente documentado, não a descoberta de nove categorias naturais definitivas.
+O valor de Silhouette do K-Means K9 indica separação limitada entre grupos.
 
-### 7.2. Perfis territoriais candidatos
+A estabilidade ARI também revela sensibilidade à composição dos dados.
 
-| Perfil | Nome mostrado ou proposto | Distritos |
+Essas limitações fazem parte da interpretação do modelo e não devem ser ocultadas.
+
+### 8.4. Perfis territoriais
+
+| Perfil | Nome | Distritos |
 |---|---|---:|
 | P01 | Mais Praças, Vida Urbana | 9 |
 | P02 | Praças em Regiões Menos Densas | 7 |
@@ -198,151 +372,418 @@ A análise mais simples com poucos clusters chegou a produzir valores de Silhoue
 | P09 | Escolas e UBS por Habitante | 6 |
 | **Total** | | **96** |
 
-Os títulos são rótulos de comunicação, sujeitos a ressalvas editoriais. O perfil P04 não assegura que todos os seus distritos apresentem taxas menores em todas as medidas; P07 reflete o indicador histórico de empregos formais e não a disponibilidade atual de vagas. Praças e corredores verdes cadastrados não equivalem a arborização de ruas, e equipamentos de transporte por habitante não indicam necessariamente menor tempo de viagem.
+Os perfis são classificações exploratórias e não representam notas de qualidade territorial.
 
-A estabilidade e as exceções são documentadas. Mooca, Socorro e Lajeado apresentaram Silhouette individual negativa na auditoria do catálogo K9, sinalizando fronteiras menos claras entre grupos. Eles não foram movidos manualmente para obter um resultado mais conveniente. Manter o output do algoritmo e explicar suas limitações foi preferível a ajustar classificações sem base reproduzível.
+O perfil associado a menores índices de ocorrências não significa ausência de criminalidade nem garante que todos os seus distritos apresentem taxas inferiores em qualquer indicador isolado.
 
-Os notebooks, contratos e resultados estão em [docs/ml](docs/ml/). A [metodologia do catálogo K9](docs/ml/metodologia_catalogo_perfis_v3.md) e a [comparação inicial K-Means versus Ward](docs/ml/metodologia_comparacao.md) registram as versões dos experimentos, os critérios e as limitações de cada abordagem.
+Da mesma forma, o perfil relacionado a empregos utiliza informações históricas e não representa necessariamente a disponibilidade atual de vagas.
 
-## 8. Consumer V2 e aplicação Streamlit
+Na auditoria foram identificados três distritos com Silhouette individual negativa: Mooca, Socorro e Lajeado.
 
-O frontend não consulta diretamente 254 colunas nem precisa executar algoritmos de clusterização em cada interação. A Gold e o modelo dimensional alimentam o **Consumer V2**, uma tabela física destinada a disponibilizar os campos estritamente necessários para navegação e comparação:
+Essas observações permaneceram nas classificações originais do algoritmo, sem realocação manual para melhorar artificialmente os resultados.
+
+A metodologia e os resultados estão documentados em [Machine Learning](docs/ml/).
+
+## 9. Consumer V2 e aplicação Streamlit
+
+O aplicativo não consulta diretamente os 254 atributos da Gold.
+
+Embora essa estrutura seja adequada para análises amplas, disponibilizar todo o seu conteúdo à interface aumentaria o acoplamento entre armazenamento, transformação e apresentação.
+
+Por isso, foi materializada uma camada específica de consumo:
 
 `workspace.gold.bairroiq_frontend_v2`
 
-Ela contém **96 distritos e 20 campos**, incluindo dados de consumo e metadados de auditoria. Essa escolha melhora a previsibilidade da interface, simplifica permissões e permite validar um contrato pequeno antes de abrir uma tela ao usuário. O Consumer V1 permanece como um artefato anterior versionado, mas **o MVP homologado utiliza o V2**.
+A tabela possui **96 registros e 20 campos**, incluindo métricas utilizadas na interface e metadados técnicos de auditoria.
 
-Os quatro índices personalizados são `green_leisure_score`, `safety_score`, `mobility_score` e `public_services_score`, em escala de 0 a 100. Empregos formais, densidade populacional e taxa de roubos aparecem como informações complementares, sem serem incorporados aos quatro pesos da personalização. Essa separação evita que o aplicativo misture silenciosamente unidades físicas com percentis ou notas relativas.
+Essa estrutura simplifica as consultas, estabiliza o contrato de dados e facilita a validação antes da apresentação das informações ao usuário.
 
-A aplicação **Streamlit V2** tem cinco experiências principais:
+O Consumer V1 permanece preservado como artefato anterior, enquanto o MVP homologado utiliza o Consumer V2.
 
-1. **Personalizar cenário:** atribuir pesos aos quatro critérios de comparação.
-2. **Explorar e visualizar:** exibir limites distritais, filtros e Top 10 calculado a partir do cenário.
-3. **Comparar regiões:** selecionar distritos e analisar gráficos e indicadores lado a lado.
-4. **Perfis urbanos:** conhecer o agrupamento exploratório associado a cada distrito.
-5. **Fontes:** consultar a origem dos dados e as principais restrições metodológicas.
+### 9.1. Personalização da análise
 
-Os pesos são aplicados **na interface ao snapshot recebido**, não alteram a Gold, não reexecutam o K-Means e não modificam as propriedades dos distritos. O ranking resultante é uma ferramenta de exploração personalizada, não uma classificação oficial nem um parecer sobre segurança ou habitabilidade.
+A aplicação utiliza quatro critérios principais:
 
-O mapa utiliza geometria distrital oficial disponibilizada em `streamlit/bairroiq-streamlit-v2/bairroiq/district_boundaries.geojson`. O app consulta o Databricks em modo somente leitura e valida campos, cardinalidade e consistência do snapshot antes de apresentar dados reais. Na homologação privada registrada em **8 de novembro de 2026**, foram testados mapa, ranking, filtros, comparação e perfis com o Consumer V2. A aplicação de homologação foi interrompida depois do teste.
-
-**A demonstração privada não equivale à autorização para publicação pública.** O Consumer V2 mantém `publicacao_autorizada = false`. A configuração de prévia interna exige acesso restrito e opt-in explícito; o `app.yaml` versionado não habilita essa exceção por padrão. O aplicativo também oferece modo `sample` para testes com dados demonstrativos, sempre distinguindo esses dados dos 96 distritos reais.
-
-O código, as instruções de execução local, a configuração do Databricks Apps e as evidências da demonstração estão no [README do Streamlit V2](streamlit/bairroiq-streamlit-v2/README.md).
-
-## 9. Arquitetura Lambda para a SSP-SP
-
-A SSP disponibiliza arquivos anuais que podem ser republicados com meses adicionais ou correções. Sobrescrever o arquivo anterior permitiria obter o valor mais recente, mas apagaria as evidências necessárias para explicar **o que mudou**. Para tratar esse problema construímos um fluxo separado, com versionamento da fonte, reprocessamento integral de referência, cálculo de diferenças e publicação reconciliada.
-
-A arquitetura possui três componentes lógicos:
-
-**Batch:** recompõe as contagens do snapshot da fonte por ano, mês estatístico, distrito e tipo de ocorrência. Para cada mês identificado, gera todas as combinações de 96 distritos e duas categorias, incluindo as combinações com zero ocorrências. Isso torna o resultado comparável entre versões, mesmo quando um distrito não possui registros em determinado grupo.
-
-**Speed:** calcula a diferença entre duas publicações por multiplicidade de hashes de linhas. Um mesmo conteúdo pode aparecer mais de uma vez, e `NUM_BO` não foi assumido como chave globalmente única. Assim, o mecanismo identifica inclusões e exclusões sem descartar repetições legítimas, e trata alterações de conteúdo como retirada de uma versão e inclusão de outra.
-
-**Serving:** recebe os números reconciliados, exigindo para cada chave a igualdade `Batch anterior + Speed = Batch atual`. Só depois da conferência é atualizado o apontador da versão publicada. Essa ordem diminui a chance de uma consulta recuperar um snapshot declarado como completo antes que seus dados tenham sido persistidos.
-
-```mermaid
-flowchart LR
-    A[Excel oficial SSP por HTTPS]
-    B[Raw: arquivo e SHA256]
-    C[Bronze SSP V2]
-    D[Silver SSP privada e georreferenciamento]
-    E[Batch: recomputação completa]
-    F[Speed: diferença multiconjunto]
-    G[Reconciliação por chave]
-    H[Serving privada]
-    I[Ponteiro da publicação vigente]
-    A --> B --> C --> D
-    D --> E --> G
-    D --> F --> G
-    G --> H --> I
-```
-
-| Componente | Objeto físico |
+| Critério | Campo |
 |---|---|
-| Bronze versionada | `workspace.bronze.ssp_ingestao_v2` |
-| Staging exclusiva | `workspace.bronze.atlas_sampa_ssp_stage_v2` |
+| Verde e lazer | `green_leisure_score` |
+| Segurança | `safety_score` |
+| Mobilidade | `mobility_score` |
+| Serviços públicos | `public_services_score` |
+
+Esses índices são disponibilizados em escala relativa de 0 a 100.
+
+A personalização ocorre por meio de pesos definidos na interface.
+
+Empregos formais, densidade populacional e taxas de roubos são apresentados como informações complementares, sem compor automaticamente os quatro critérios ponderados.
+
+Essa separação evita misturar unidades físicas com indicadores relativos.
+
+Os pesos não alteram os dados armazenados, não modificam a Gold e não reexecutam os modelos de Machine Learning.
+
+O ranking é produzido a partir das preferências escolhidas pelo usuário e não constitui uma classificação oficial de qualidade de vida.
+
+### 9.2. Funcionalidades implementadas
+
+O MVP possui cinco experiências principais.
+
+1. **Personalizar cenário:** definição de prioridades e pesos para os critérios territoriais.
+2. **Explorar:** visualização dos 96 distritos, filtros e ranking personalizado.
+3. **Comparar regiões:** análise de indicadores de diferentes distritos.
+4. **Perfis urbanos:** exploração dos grupos identificados pelo Machine Learning.
+5. **Fontes:** apresentação das origens e limitações dos indicadores.
+
+A interface utiliza Streamlit e Plotly, com geometria distrital oficial disponível no projeto.
+
+O acesso aos dados reais ocorre por uma integração de leitura com o Databricks SQL Warehouse.
+
+Na homologação privada de 8 de novembro de 2026 foram validados mapa, filtros, ranking, comparação e visualização dos perfis.
+
+A aplicação foi interrompida após a demonstração.
+
+O Consumer mantém `publicacao_autorizada = false`. A prévia privada exige configuração e permissões específicas, e sua existência não representa autorização para publicação pública.
+
+As instruções e os contratos da aplicação estão disponíveis em [Streamlit V2](streamlit/bairroiq-streamlit-v2/README.md).
+
+## 10. Arquitetura Lambda para atualização da SSP
+
+A SSP disponibiliza arquivos anuais que podem ser republicados ao longo do tempo.
+
+Essas republicações podem incluir novos meses estatísticos e correções de registros anteriores.
+
+Um processo que apenas substituísse o arquivo anterior perderia informações importantes sobre o histórico das alterações.
+
+Para resolver esse problema foi implementada uma arquitetura Lambda com versionamento da origem, recomputação Batch, cálculo de diferenças Speed e publicação de uma Serving reconciliada.
+
+### 10.1. Componentes da arquitetura
+
+**Batch**
+
+O caminho Batch recalcula as contagens da publicação completa por ano, mês estatístico, distrito e tipo de ocorrência.
+
+Cada mês identificado gera uma grade com 96 distritos e duas categorias de crime.
+
+As combinações sem ocorrências recebem contagem zero, mantendo a comparabilidade entre publicações.
+
+**Speed**
+
+O caminho Speed compara duas versões da fonte utilizando multiplicidades de hashes de conteúdo.
+
+Essa decisão evita assumir incorretamente que o número do boletim de ocorrência representa uma chave única global.
+
+O mecanismo identifica inclusões, exclusões e alterações, preservando a multiplicidade dos registros.
+
+**Serving**
+
+A Serving recebe os resultados reconciliados, verificando a identidade:
+
+`Batch anterior + Speed = Batch atual`
+
+Somente após a validação e a persistência da Serving o controle da versão vigente é atualizado.
+
+A atualização do apontador por último reduz o risco de declarar uma publicação concluída antes de seu conteúdo estar disponível.
+
+O caminho Speed implementado utiliza diferenças calculadas entre republicações completas da SSP. Ele não corresponde a um serviço de streaming contínuo de eventos em tempo real.
+
+Essa característica é compatível com a disponibilização da fonte por arquivos periódicos.
+
+### 10.2. Objetos físicos
+
+| Componente | Objeto |
+|---|---|
+| Bronze | `workspace.bronze.ssp_ingestao_v2` |
+| Staging | `workspace.bronze.atlas_sampa_ssp_stage_v2` |
 | Silver privada | `workspace.silver.atlas_sampa_ssp_v2` |
 | Batch | `workspace.observability.atlas_sampa_ssp_batch_v1` |
 | Speed | `workspace.observability.atlas_sampa_ssp_speed_v1` |
 | Serving | `workspace.observability.atlas_sampa_ssp_serving_v1` |
-| Controle da versão vigente | `workspace.observability.atlas_sampa_ssp_publication_v1` |
+| Controle de publicação | `workspace.observability.atlas_sampa_ssp_publication_v1` |
 
-O processamento seleciona ocorrências de **furto, art. 155, e roubo, art. 157**, referentes ao município de São Paulo, e as associa espacialmente aos distritos. Registros sem localização distrital ficam disponíveis para auditoria privada, mas não são somados arbitrariamente às contagens por distrito.
+O processamento seleciona registros de roubo e furto referentes ao município de São Paulo e utiliza associação espacial aos 96 distritos oficiais.
 
-### 9.1. Execução e resultado da homologação
+Registros que não possuem correspondência distrital válida permanecem auditáveis, mas não são somados arbitrariamente às contagens territoriais.
 
-A primeira execução real do Job `atlas-sampa-ssp-lambda` foi concluída no Databricks Serverless depois da correção de compatibilidade do script. Uma auditoria SQL sobre as tabelas publicadas confirmou:
+### 10.3. Resultado da execução
 
-| Indicador auditado | Resultado |
+A primeira execução real da arquitetura Lambda foi concluída com sucesso no Databricks Serverless.
+
+A auditoria da publicação identificou:
+
+| Indicador | Resultado |
 |---|---:|
-| Ano de publicação | 2026 |
-| Meses estatísticos presentes | 9 |
-| Distritos com combinações publicadas | 96 |
+| Ano estatístico | 2026 |
+| Meses presentes | 9 |
+| Distritos | 96 |
 | Tipos de ocorrência | 2 |
 | Linhas Batch | 1.728 |
 | Linhas Serving | 1.728 |
-| Ocorrências em distritos na Serving | 250.606 |
-| Divergências Batch versus Serving | 0 |
-| Divergências Batch anterior + Speed versus Batch atual | 0 |
-| Resultado da auditoria | `APROVADO` |
+| Ocorrências publicadas | 250.606 |
+| Divergências Batch e Serving | 0 |
+| Divergências de reconciliação | 0 |
+| **Resultado** | **APROVADO** |
 
-A auditoria atesta a consistência **da publicação testada**. Não prova que futuras republicações manterão exatamente o mesmo layout, nem que o mecanismo é um stream de eventos em tempo real. O caminho Speed aqui é uma **diferença incremental calculada entre arquivos completos**, processada em execuções pontuais. Essa forma foi escolhida por ser compatível com a maneira como a SSP publica seus dados e por permitir uma demonstração auditável sem manter um serviço contínuo de streaming.
+Esses resultados comprovam a consistência da publicação auditada.
 
-O Job está definido em um **Databricks Bundle independente**, para que a evolução do módulo SSP não modifique inadvertidamente os Jobs existentes do projeto. A agenda foi configurada com cron mensal, dia 10 às 10h no fuso `America/Sao_Paulo`, mas permanece **PAUSED**. Não há atualização automática da Gold oficial nem do Consumer V2 a partir dessa Serving.
+Não significam que futuras republicações manterão obrigatoriamente o mesmo layout, nem substituem testes de novos ciclos de atualização.
 
-O módulo, seus testes e as regras de execução estão em [barrioiq_pipeline/atlas_sampa/ssp](barrioiq_pipeline/atlas_sampa/ssp/) e no documento [LAMBDA.md](barrioiq_pipeline/atlas_sampa/ssp/LAMBDA.md).
+### 10.4. Por que a Lambda permanece desacoplada da Gold
 
-## 10. Governança, qualidade e observabilidade
+A separação entre a arquitetura Lambda e a Gold principal é uma **decisão de governança e de controle do ciclo de vida dos dados**.
 
-A confiabilidade do projeto não depende apenas de executar transformações sem erro. Cada camada tem uma granularidade declarada e verificações próprias de cobertura, nulidade, duplicidade, formato, coordenadas e faixa de valores. Os testes interrompem o processamento quando encontram um contrato incompatível, em vez de converter silenciosamente um valor inesperado e produzir um resultado aparentemente válido.
+O Atlas Sampa não foi concebido como um sistema de monitoramento em tempo real. Sua proposta é disponibilizar fotografias territoriais consistentes e reproduzíveis para análises comparativas.
 
-O **versionamento Delta** e os **hashes SHA256** ajudam a identificar fotografias e mudanças de conteúdo. A documentação de colunas no Unity Catalog facilita a leitura dos indicadores por pessoas que não participaram da ingestão. Os contratos também distinguem valores absolutos, taxas por população, índices relativos e metadados técnicos. Essa distinção importa porque somar taxas como se fossem contagens, ou comparar um percentil diretamente com um número físico, comprometeria a análise.
+As fontes que alimentam o produto possuem diferentes cadências de atualização.
 
-A observabilidade está presente em diferentes níveis. Os scripts emitem mensagens e eventos estruturados, os Jobs guardam histórico de execução, o GitHub Actions registra verificações e o schema `workspace.observability` armazena saídas de auditoria e os componentes da Lambda. Há ainda workflows de coleta de indicadores operacionais e evidências de entrega. **Esses mecanismos não constituem monitoramento contínuo de produção**, e as métricas DORA de produção não são anunciadas como mensuradas quando não existe uma operação de produção instrumentada.
+Dados censitários possuem ciclos longos de revisão, indicadores urbanos podem ser alterados conforme atualizações administrativas e registros criminais podem receber novas publicações mensalmente.
 
-Na Lambda, a política de logs evita publicar identificadores de boletim de ocorrência, logradouros ou dados detalhados de registros. A aplicação web consome somente dados agregados por distrito, por uma identidade autorizada a ler o Consumer, sem credenciais pessoais fixadas no repositório. O bloqueio `publicacao_autorizada = false` é uma regra de produto e deve ser acompanhado das permissões reais do Unity Catalog, não tratado como substituto delas.
+Entretanto, novas publicações não precisam necessariamente resultar em uma nova versão do produto.
 
-A governança reconhece que trabalhar com dados públicos não elimina riscos de interpretação. Índices de ocorrências não antecipam vitimização individual, perfis não garantem condições de moradia e indicadores históricos não devem ser apresentados como observações atuais.
+Atualizar todos os componentes sempre que uma fonte for modificada poderia gerar reprocessamentos desnecessários, maior consumo computacional e mudanças frequentes nos resultados apresentados ao usuário.
 
-## 11. CI/CD e infraestrutura como código
+Mais importante, uma atualização isolada poderia introduzir inconsistências entre períodos estatísticos, indicadores normalizados, agrupamentos territoriais e rankings personalizados.
 
-O repositório utiliza **GitHub Actions** para validar scripts, SQL, contratos, modelos e configurações antes da integração à `main`. O **Databricks Asset Bundle** permite manter as definições dos Jobs próximas ao código, reduzindo diferenças entre aquilo que foi revisado no GitHub e o que será executado no workspace.
+A arquitetura foi, portanto, organizada em duas responsabilidades independentes.
 
-A implantação do Bundle principal utiliza verificações antes de atualizar recursos existentes. O módulo Lambda possui **deploy manual próprio**, porque sua primeira publicação e as mudanças da SSP não devem ser disparadas pelo mesmo fluxo que distribui os demais componentes. O workflow manual de deploy não ativa o agendamento e não equivale a executar o processamento de dados.
+A primeira é **manter as publicações da fonte atualizadas e auditáveis**.
 
-O Terraform declara os schemas `bronze`, `silver`, `gold` e `observability`, além do Volume Raw gerenciado. A definição declarativa facilita inspecionar dependências e reaplicar configurações de forma disciplinada. A automação atualmente presente no repositório valida `terraform fmt`, `terraform init -backend=false` e `terraform validate`. **A passagem do CI confirma validade de configuração, não comprova sozinha que cada recurso foi provisionado por um `terraform apply`.** A evidência do estado de infraestrutura deve ser consultada no ambiente do HCP Terraform quando necessária.
+A segunda é **decidir quando uma nova versão dos dados deve ser incorporada ao produto analítico**.
 
-As principais automações versionadas podem ser consultadas em [.github/workflows](.github/workflows/), e as declarações Terraform estão em [infra](infra/). O projeto não depende de publicações automáticas irrestritas para ser demonstrado; a separação entre CI, deploy e execução é uma medida deliberada de controle de custo e de risco sobre dados reais.
+A Lambda atende à primeira responsabilidade, enquanto a Gold e os consumidores seguem um processo de publicação controlado.
 
-## 12. Como reproduzir e validar
+Essa distinção permite processar novas informações sem alterar silenciosamente um snapshot já homologado.
 
-Os testes offline verificam contratos e comportamento com dados sintéticos. Eles são rápidos e seguros para mudanças de código, mas não substituem a auditoria das tabelas reais no Databricks. A reprodução integral dos dados depende de acesso às fontes, Volumes, tabelas e permissões do ambiente utilizado.
+### 10.5. Frequência da fonte e relevância analítica
 
-### 12.1. Testes de engenharia, ML e contratos
+A atualização de uma fonte não implica necessariamente uma alteração relevante nos resultados estatísticos do produto.
+
+Por exemplo, uma nova publicação da SSP pode incluir milhares de ocorrências sem modificar substancialmente a ordenação relativa dos distritos.
+
+Entretanto, essa estabilidade não pode ser presumida.
+
+O impacto depende da distribuição territorial dos novos registros, dos indicadores utilizados e da sensibilidade dos modelos.
+
+No caso do Atlas Sampa, o K-Means K9 apresentou separação limitada e estabilidade moderada. Portanto, alterações relativamente pequenas em determinadas variáveis podem afetar classificações de distritos próximos às fronteiras dos clusters.
+
+Por essa razão, não consideramos correto afirmar que atualizações frequentes seriam necessariamente estatisticamente irrelevantes.
+
+A decisão técnica é diferente: **uma nova publicação deve ser avaliada antes de provocar alterações nos modelos e produtos analíticos**.
+
+Uma política de promoção orientada por impacto pode considerar mudanças nas taxas, posições relativas dos distritos, composição dos clusters e consistência temporal.
+
+Esses critérios representam a diretriz de governança para futuras promoções e não devem ser confundidos com um mecanismo automático de avaliação de impacto já implementado.
+
+### 10.6. Preservação da consistência temporal
+
+A publicação homologada da Lambda contém nove meses estatísticos de 2026.
+
+Alguns indicadores criminais utilizados anteriormente na Gold possuem janelas de referência de doze meses.
+
+Substituir diretamente esses indicadores por contagens referentes a nove meses produziria uma comparação temporal incompatível.
+
+Além disso, a Gold, o Star Schema, os resultados do Machine Learning e o Consumer V2 possuem versões e contratos identificados por hashes.
+
+A atualização de uma fonte relevante para esses componentes exige avaliar as consequências sobre os dados derivados.
+
+Por esse motivo, a Serving da Lambda não substitui automaticamente os dados da Gold.
+
+A promoção exige uma decisão específica de publicação, com validação temporal, reconstrução dos componentes afetados e geração de novos snapshots quando necessário.
+
+### 10.7. Política de execução sob demanda
+
+O Job `atlas-sampa-ssp-lambda` possui configuração de execução mensal para o dia 10, às 10h, no fuso `America/Sao_Paulo`.
+
+Entretanto, seu agendamento permanece **PAUSED**.
+
+Essa condição é intencional.
+
+A coleta e o processamento podem ser iniciados manualmente quando houver necessidade de verificar uma nova publicação da fonte.
+
+A decisão reduz processamento desnecessário e permite controlar o consumo de recursos em um ambiente de desenvolvimento.
+
+O fato de o Job possuir uma configuração de agendamento não significa que a aplicação esteja executando atualizações automáticas.
+
+Da mesma forma, a execução manual da Lambda não autoriza a alteração do produto analítico.
+
+O código da arquitetura Lambda, suas regras de validação e o procedimento operacional estão documentados em [LAMBDA.md](barrioiq_pipeline/atlas_sampa/ssp/LAMBDA.md).
+
+## 11. Governança, qualidade e observabilidade
+
+A governança do Atlas Sampa foi construída para preservar rastreabilidade, consistência e clareza sobre as limitações dos indicadores.
+
+Cada camada possui contratos específicos de estrutura, granularidade, tipos, chaves e qualidade.
+
+Os processos validam cardinalidade, campos obrigatórios, unicidade, coordenadas, intervalos numéricos e consistência entre fontes e destinos.
+
+Quando uma condição obrigatória não é atendida, os processos são interrompidos em vez de produzir silenciosamente resultados inconsistentes.
+
+### 11.1. Versionamento e reprodutibilidade
+
+O Delta Lake preserva o histórico técnico das tabelas, enquanto hashes SHA256 permitem identificar conteúdos e snapshots.
+
+A combinação desses mecanismos oferece rastreabilidade entre versões dos dados e resultados analíticos.
+
+Os modelos de Machine Learning e os consumidores utilizam identificadores de snapshot explícitos.
+
+Essa decisão evita que a atualização de uma tabela seja interpretada automaticamente como autorização para substituir classificações ou indicadores anteriores.
+
+O versionamento também permite preservar evidências de resultados já apresentados.
+
+### 11.2. Contratos e catálogo de dados
+
+O Unity Catalog é utilizado para organizar objetos, permissões e metadados técnicos.
+
+A Gold possui documentação de suas 254 colunas, incluindo origem, unidade, descrição e limitações.
+
+Os contratos distinguem contagens absolutas, taxas por população, índices normalizados e valores descritivos.
+
+Essa distinção evita operações analíticas inadequadas, como somar taxas de diferentes distritos ou interpretar índices relativos como quantidades físicas.
+
+A documentação também registra que diferentes indicadores podem representar períodos estatísticos distintos.
+
+### 11.3. Data Quality
+
+A qualidade é verificada ao longo das camadas.
+
+Na ingestão, são aplicadas validações de estrutura, conteúdo e versões dos arquivos.
+
+Na Silver, são verificadas tipagem, consistência territorial e correspondências geográficas.
+
+Na Gold, são validados schema, cardinalidade, chaves e integridade dos indicadores.
+
+Nos produtos dimensionais e consumidores, os contratos verificam a compatibilidade com os snapshots de origem.
+
+Na Lambda, a reconciliação entre Batch, Speed e Serving funciona como uma validação adicional de consistência.
+
+Essas verificações não eliminam todas as limitações das fontes, mas tornam explícitas as condições necessárias para aceitar os resultados produzidos.
+
+### 11.4. Observabilidade
+
+A observabilidade é implementada em diferentes componentes da plataforma.
+
+Os scripts produzem mensagens e eventos estruturados, permitindo identificar etapas executadas e falhas.
+
+Os Jobs do Databricks mantêm histórico de execução e resultados.
+
+O GitHub Actions registra testes, validações e implantações.
+
+O schema `workspace.observability` contém estruturas destinadas a auditoria e aos resultados da arquitetura Lambda.
+
+Também existem workflows de coleta de métricas operacionais e evidências de entrega.
+
+A observabilidade adotada é compatível com o ambiente de desenvolvimento e com o caráter controlado das execuções.
+
+Ela não deve ser confundida com monitoramento contínuo de uma operação de produção.
+
+Da mesma forma, métricas DORA de produção não são apresentadas como plenamente mensuradas na ausência de uma operação produtiva instrumentada.
+
+### 11.5. Segurança e uso responsável
+
+O processamento utiliza dados públicos, mas isso não elimina a necessidade de avaliar riscos de exposição e interpretação.
+
+A aplicação web trabalha com indicadores agregados por distrito, sem disponibilizar registros detalhados de boletins de ocorrência ou endereços individuais.
+
+O pipeline Lambda evita incluir identificadores sensíveis e informações detalhadas de registros em seus logs.
+
+O acesso aos dados é controlado por permissões do ambiente Databricks.
+
+O campo `publicacao_autorizada` também funciona como controle lógico do produto, mas não substitui as permissões efetivas de acesso.
+
+A publicação pública depende de avaliação específica de governança.
+
+## 12. CI/CD e infraestrutura como código
+
+O projeto utiliza GitHub Actions para executar validações de código e contratos antes da integração de alterações à branch `main`.
+
+Os workflows contemplam componentes de engenharia de dados, qualidade, Machine Learning, modelagem, aplicação web e infraestrutura.
+
+O objetivo é detectar problemas de compatibilidade antes que mudanças sejam disponibilizadas no ambiente Databricks.
+
+### 12.1. Databricks Asset Bundles
+
+As definições dos Jobs são mantidas em arquivos versionados no repositório.
+
+O Databricks Asset Bundles permite validar e implantar essas configurações de maneira controlada.
+
+Essa abordagem reduz divergências entre código revisado e recursos existentes no workspace.
+
+O fluxo principal utiliza verificações antes de atualizar Jobs já implantados.
+
+A arquitetura Lambda possui um Bundle independente e um workflow próprio de deploy manual.
+
+Essa separação foi adotada para impedir que alterações específicas da SSP modifiquem inadvertidamente componentes do pipeline principal.
+
+O deploy de código não implica execução automática dos dados.
+
+### 12.2. Terraform
+
+A infraestrutura como código utiliza Terraform para declarar recursos do ambiente Databricks.
+
+O repositório contempla schemas das camadas Bronze, Silver e Gold, o schema Observability e o Volume Raw gerenciado.
+
+A escolha do Terraform permite manter a descrição da infraestrutura sob controle de versão e reduzir dependências de configurações realizadas exclusivamente pela interface.
+
+O workflow de CI executa verificações de formatação, inicialização sem backend remoto e validação da configuração.
+
+Esses testes comprovam a consistência declarativa dos arquivos Terraform, mas não demonstram isoladamente que cada recurso foi efetivamente criado por uma execução de `terraform apply`.
+
+A comprovação de provisionamento deve considerar o estado registrado no HCP Terraform e a correspondência com os recursos existentes no Databricks.
+
+### 12.3. Controle operacional
+
+O projeto separa três atividades: validar alterações, implantar código e executar processamento.
+
+Essa divisão permite aprovar mudanças de forma independente e evita que um commit provoque automaticamente uma carga de dados potencialmente custosa.
+
+A mesma lógica se aplica à atualização do produto analítico.
+
+Uma nova versão da fonte pode ser processada e auditada sem ser imediatamente promovida ao Consumer.
+
+Essa separação é especialmente relevante para preservar os resultados de experimentos e demonstrações realizadas com snapshots identificados.
+
+## 13. Como reproduzir e validar
+
+A reprodução do projeto possui dois níveis.
+
+O primeiro utiliza testes automatizados com dados sintéticos, apropriados para verificar contratos e comportamento do código.
+
+O segundo utiliza as tabelas reais no Databricks, permitindo validar materializações, cardinalidade, indicadores e consistência dos resultados.
+
+Os testes sintéticos não substituem a auditoria dos dados reais.
+
+### 13.1. Testes de engenharia e Machine Learning
 
 ```bash
 git clone https://github.com/DCosso/bairroiq.git
 cd bairroiq
+
 python -m pip install -r barrioiq_pipeline/requirements-ml.txt
+
 python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Alguns testes especializados utilizam dependências adicionais, instaladas nos workflows correspondentes. Em caso de diferença de ambiente, os arquivos da pasta [.github/workflows](.github/workflows/) definem as dependências e versões usadas na verificação automatizada.
+Alguns testes possuem dependências específicas, documentadas nos workflows do GitHub Actions.
 
-### 12.2. Aplicação em modo demonstrativo local
+### 13.2. Aplicação demonstrativa
+
+A aplicação Streamlit pode ser executada localmente utilizando dados demonstrativos.
 
 ```powershell
 cd streamlit/bairroiq-streamlit-v2
+
 python -m pip install -r requirements-dev.txt
-$env:BAIRROIQ_DATA_PROVIDER = 'sample'
+
+$env:BAIRROIQ_DATA_PROVIDER = "sample"
+
 python -m streamlit run app.py
 ```
 
-O modo `sample` usa dados de demonstração, não substitui uma leitura homologada do Consumer V2 real. Para a experiência real, o [README do frontend](streamlit/bairroiq-streamlit-v2/README.md) documenta o Databricks Apps, o SQL Warehouse, as permissões necessárias e a regra de prévia restrita.
+O modo `sample` não representa o Consumer V2 materializado no Databricks.
 
-### 12.3. Conferência da Serving SSP
+Para a execução com dados reais é necessário configurar o provedor Databricks, as permissões de leitura e o ambiente de demonstração privada.
+
+### 13.3. Validação da Serving da SSP
+
+A versão vigente da publicação pode ser consultada por meio do controle de publicação.
 
 ```sql
 SELECT
@@ -354,63 +795,122 @@ SELECT
     SUM(s.quantidade) AS ocorrencias
 FROM workspace.observability.atlas_sampa_ssp_publication_v1 p
 JOIN workspace.observability.atlas_sampa_ssp_serving_v1 s
-  ON s.source_sha256 = p.source_sha256
- AND s.ano = p.ano
+    ON s.source_sha256 = p.source_sha256
+   AND s.ano = p.ano
 GROUP BY p.ano
 ORDER BY p.ano DESC;
 ```
 
-A consulta lê a versão vigente apontada pelo controle de publicação, em vez de inferir a versão atual pelo maior hash ou pela última linha escrita. A reconciliação mais detalhada entre Batch, Speed e Serving consta das rotinas de homologação do módulo SSP.
+O controle de publicação identifica explicitamente a versão vigente, evitando inferir atualidade a partir da ordenação de hashes ou da data de gravação.
 
-## 13. Estrutura do repositório e documentação
+A auditoria completa da reconciliação deve verificar as contagens por chave entre Batch anterior, Speed, Batch atual e Serving.
+
+## 14. Organização do repositório
 
 ```text
 bairroiq/
+|
 |  README.md
-|  .github/workflows/                  GitHub Actions e validações
-|  infra/                              Terraform e configuração declarativa
-|  EDA/                                Análise exploratória inicial
-|  notebooks/                          Experimentos e exploração
-|  barrioiq_pipeline/                  Runners, SQL, testes e Bundles
-|     atlas_sampa/ssp/                 Coletor e arquitetura Lambda SSP
-|     resources/                       Definições de Jobs principais
-|     sql/                             Contratos e transformações SQL
+|
+|  .github/
+|      workflows/
+|          Testes e processos de CI/CD
+|
+|  infra/
+|      Definições Terraform
+|
+|  EDA/
+|      Análises exploratórias
+|
+|  notebooks/
+|      Experimentos e validações
+|
+|  barrioiq_pipeline/
+|      Runners de engenharia
+|      SQL e transformações
+|      Databricks Asset Bundles
+|
+|      atlas_sampa/
+|          ssp/
+|              Coletor versionado
+|              Batch, Speed e Serving
+|
+|      resources/
+|          Definições dos Jobs
+|
 |  docs/
-|     arquitetura/                     Arquitetura e modelos lógicos
-|     consumo/                         Auditoria e contrato dos consumidores
-|     governanca/                      Regras semânticas e bloqueios
-|     ml/                              Experimentos e métricas
-|     modelagem/                       Modelo dimensional
-|     dicionario_gold_distritos_wide.md
-|     dicionario_gold_distritos_wide.json
-|  streamlit/bairroiq-streamlit-v2/    Aplicação Atlas Sampa e testes
-|  tests/                              Testes de engenharia e ML
+|      arquitetura/
+|      consumo/
+|      governanca/
+|      ml/
+|      modelagem/
+|      dicionario_gold_distritos_wide.md
+|      dicionario_gold_distritos_wide.json
+|
+|  streamlit/
+|      bairroiq-streamlit-v2/
+|          Aplicação Atlas Sampa
+|          Integração Databricks
+|          Testes da interface
+|
+|  tests/
+|      Testes automatizados
 ```
 
-Documentos de referência:
+### Documentação técnica
 
-- [Dicionário de dados da Gold](docs/dicionario_gold_distritos_wide.md)
-- [Contrato de dados da Gold em JSON](docs/dicionario_gold_distritos_wide.json)
-- [Metodologia de Machine Learning e catálogo K9](docs/ml/metodologia_catalogo_perfis_v3.md)
-- [Comparação inicial de K-Means e Ward](docs/ml/metodologia_comparacao.md)
+- [Dicionário completo da Gold](docs/dicionario_gold_distritos_wide.md)
+- [Contrato estruturado da Gold](docs/dicionario_gold_distritos_wide.json)
+- [Metodologia de Machine Learning](docs/ml/metodologia_catalogo_perfis_v3.md)
+- [Comparação entre K-Means e Ward](docs/ml/metodologia_comparacao.md)
 - [Revisão semântica dos perfis](docs/governanca/encerramento_auditoria_semantica_v3.md)
-- [Contrato do Star Schema Delta](docs/modelagem/star_schema_v1_delta_contrato.md)
-- [Auditoria SQL do Consumer V2](docs/consumo/BairroIQ_Frontend_V2_Auditoria_Leitura.sql)
-- [Frontend e homologação privada](streamlit/bairroiq-streamlit-v2/README.md)
-- [Arquitetura Lambda SSP e controles](barrioiq_pipeline/atlas_sampa/ssp/LAMBDA.md)
+- [Contrato do Star Schema](docs/modelagem/star_schema_v1_delta_contrato.md)
+- [Auditoria do Consumer V2](docs/consumo/BairroIQ_Frontend_V2_Auditoria_Leitura.sql)
+- [Aplicação Streamlit V2](streamlit/bairroiq-streamlit-v2/README.md)
+- [Arquitetura Lambda SSP](barrioiq_pipeline/atlas_sampa/ssp/LAMBDA.md)
 
-## 14. Responsabilidades técnicas e colaboração
+## 15. Responsabilidades técnicas e colaboração
 
-A execução do produto envolve competências complementares. **Engenharia de dados** estrutura a ingestão, transformação, versionamento e qualidade das fontes. **Analytics** define indicadores, unidades, interpretações e análises comparativas. **Ciência de dados** responde pela preparação das variáveis, experimentos, validação e interpretação dos clusters. **Desenvolvimento de produto e frontend** traduz esses resultados em interações, escolhas de critérios e visualizações compreensíveis. **DataOps e plataforma** mantêm testes, deploy, governança, custos e observabilidade.
+O desenvolvimento do Atlas Sampa reúne competências de engenharia de dados, Analytics, ciência de dados, desenvolvimento de aplicações e DataOps.
 
-A divisão por responsabilidades não significa que cada função pertença obrigatoriamente a uma pessoa exclusiva. Os contratos entre componentes permitem colaboração e revisão cruzada. Isso foi especialmente importante para garantir que as regras de negócio continuassem consistentes entre a Gold, a modelagem dimensional, o Consumer V2 e a experiência Streamlit.
+A **engenharia de dados** responde pela ingestão, padronização, modelagem, versionamento e qualidade das informações.
 
-## 15. Limitações e critérios de uso
+A área de **Analytics** define indicadores, regras de cálculo, unidades e critérios de interpretação, além de produzir análises comparativas relevantes para o produto.
 
-O produto foi **validado como MVP privado de exploração territorial**. Não oferece avaliações imobiliárias individuais, previsão de criminalidade, estimativa de tempo de deslocamento, garantia de acesso a serviços ou recomendação residencial homologada. A publicação privada da SSP e a fotografia utilizada no aplicativo pertencem a ciclos distintos, e novos resultados de uma fonte não são promovidos automaticamente para a Gold nem para a interface.
+A **ciência de dados** atua na seleção de variáveis, preparação dos dados, desenvolvimento dos experimentos de Machine Learning e avaliação das classificações territoriais.
 
-Os nove perfis são hipóteses exploratórias de similaridade, sensíveis às variáveis, transformações e número de grupos escolhidos. A Silhouette relativamente baixa e a estabilidade moderada do K-Means K9 fazem parte do resultado científico, não são indicadores a esconder. Da mesma forma, a cobertura imobiliária de 39,72% e os períodos históricos de algumas fontes devem acompanhar qualquer interpretação dos dados.
+O desenvolvimento de **produto e frontend** transforma os resultados analíticos em recursos de navegação, visualização e personalização compreensíveis.
 
-O encerramento técnico da primeira publicação Lambda foi registrado com reconciliação aprovada e sem ativação do cron. A disponibilização pública do Consumer e do Streamlit exigiria uma aprovação específica de governança e controle de acesso, que **não foi concedida nesta entrega**.
+As atividades de **DataOps e plataforma** contemplam versionamento, testes automatizados, infraestrutura, implantação, segurança e observabilidade.
 
-O resultado é um sistema de dados reproduzível e demonstrável que mantém explícitas as escolhas metodológicas, os limites das fontes e o estado de autorização de cada componente.
+Essas responsabilidades não exigem necessariamente um profissional exclusivo para cada função.
+
+A utilização de contratos explícitos entre os componentes facilita a colaboração, a revisão cruzada e a manutenção de consistência entre dados e experiência do usuário.
+
+## 16. Limitações e critérios de uso
+
+O Atlas Sampa foi validado como um MVP privado de exploração territorial.
+
+A plataforma não oferece previsão de criminalidade, avaliação individual de imóveis, garantia de acesso a serviços ou determinação de qual região é ideal para determinada pessoa.
+
+Os indicadores representam informações disponíveis nas fontes utilizadas e possuem limitações de cobertura, período e metodologia.
+
+A cobertura imobiliária documentada é parcial, e determinados indicadores socioeconômicos utilizam referências históricas.
+
+Os nove perfis territoriais representam agrupamentos exploratórios, não classificações definitivas da qualidade dos distritos.
+
+Os resultados de Machine Learning também apresentam limitações de separação e estabilidade, que devem ser consideradas nas interpretações.
+
+A arquitetura Lambda possui uma publicação real e reconciliada da SSP, mas não opera como streaming contínuo e não promove automaticamente seus resultados para a Gold.
+
+Esse desacoplamento foi adotado para preservar a consistência dos snapshots e permitir que a incorporação de novas informações seja governada por critérios de qualidade, compatibilidade temporal e relevância analítica.
+
+A política de atualização sob demanda não pressupõe que os indicadores sejam estatisticamente invariáveis.
+
+Seu princípio é que **o processamento de uma nova versão e a decisão de publicar um novo produto analítico são eventos distintos**.
+
+A primeira publicação Lambda foi homologada com zero divergências de reconciliação, e seu agendamento automático permanece pausado.
+
+A disponibilização pública do aplicativo exige aprovação específica de governança, validação dos dados expostos e revisão das permissões de acesso.
+
+O Atlas Sampa demonstra uma arquitetura de dados que combina integração multifuente, modelagem analítica, Machine Learning, governança e consumo interativo, preservando a rastreabilidade das decisões técnicas e a separação entre atualização operacional e publicação do produto.
