@@ -1,724 +1,416 @@
 
-# BairroIQ — Inteligência Territorial para Decisões Mais Inteligentes
+# Atlas Sampa
 
-**Plataforma de inteligência geográfica e análise de dados urbanos para São Paulo.**
+**Plataforma de inteligência territorial para explorar e comparar os 96 distritos administrativos da cidade de São Paulo.**
 
-O BairroIQ é um projeto de Engenharia de Dados, Analytics e DataOps que integra informações públicas e imobiliárias para construir uma visão multidimensional das regiões de São Paulo.
+O **Atlas Sampa** transforma dados públicos de origens distintas em uma experiência de análise territorial. O produto permite que uma pessoa explore características de distritos, compare indicadores e ajuste o peso de critérios como mobilidade, serviços públicos, verde e lazer e ocorrências registradas. O objetivo é tornar diferenças territoriais compreensíveis, sem apresentar uma classificação universal de melhores e piores regiões.
 
-Seu objetivo é transformar dados fragmentados em informações confiáveis, comparáveis e explicáveis, apoiando decisões sobre **onde morar, investir ou estabelecer um negócio**.
 
-O projeto utiliza uma arquitetura de dados em nuvem, pipelines de processamento distribuído, governança e automação de qualidade.
+**Estado da entrega em novembro de 2026:** Lakehouse com dados reais implementado; Gold distrital auditada; Star Schema Delta materializado; experimentos de classificação territorial concluídos; Consumer V2 materializado; MVP Streamlit V2 demonstrado em ambiente privado; arquitetura Lambda de atualizações da SSP implementada e reconciliada. Os dados de recomendação permanecem em **homologação privada**. O aplicativo não está autorizado para disponibilização pública e o agendamento mensal da Lambda permanece **PAUSED** por decisão operacional.
 
-**Status atual (novembro de 2026):** infraestrutura, base analítica, modelos exploratórios de perfis territoriais, modelagem dimensional e camada física de consumo implementados e validados internamente. A aplicação web e as recomendações ao usuário estão em desenvolvimento; **não há publicação pública nem perfis homologados para recomendações residenciais**.
+## 1. O problema que buscamos resolver
 
----
+Escolher uma região para morar, investir ou estabelecer atividades depende de muito mais do que olhar um único número. A disponibilidade de transporte, a presença de serviços públicos, as condições urbanas, a dinâmica imobiliária e os registros de ocorrências criminais são dimensões diferentes. Cada uma nasce em uma fonte, com uma escala, uma granularidade territorial e um período de referência próprio.
 
-## Principais entregas
+Essa fragmentação impede comparações simples e também cria um risco: tratar um indicador isolado como se fosse uma resposta definitiva. Por isso, em vez de desenvolver um ranking fixo de bairros, construímos uma base distrital auditável e um aplicativo que apresenta os dados e permite personalizar critérios. A interface compara distritos administrativos oficiais, não bairros comerciais cujos limites variam conforme a fonte.
 
-O BairroIQ já possui uma base analítica georreferenciada, **materializada e validada internamente no Databricks**, consolidando informações demográficas, socioeconômicas, urbanas, criminais e imobiliárias.
+O desenho do produto combina três decisões. A primeira é usar os **96 distritos oficiais de São Paulo** como unidade comum, porque possuem códigos geográficos estáveis e uma malha territorial verificável. A segunda é manter os indicadores originais e suas ressalvas disponíveis na camada analítica, mesmo quando a interface utiliza índices padronizados para comparação. A terceira é separar **segmentação territorial** de **preferência do usuário**: os perfis identificam semelhanças estatísticas; os pesos escolhidos pela pessoa determinam a ordenação personalizada, sem transformar clusters em notas de qualidade.
 
-O projeto evoluiu também para a identificação de perfis territoriais e para uma estrutura de dados preparada para a futura experiência web.
+## 2. Resultados técnicos e escopo validado
 
-| Indicador | Resultado |
-|---|---:|
-| Distritos administrativos de São Paulo | **96** |
-| Atributos disponíveis na base analítica | **254** |
-| Indicadores socioeconômicos integrados | **104** |
-| Categorias de ocorrências criminais | **41** |
-| Indicadores de equipamentos urbanos | **42** |
-| Indicadores de infraestrutura normalizados | **42** |
-| Distritos com coordenadas geográficas | **96 (100%)** |
-| Registros na base imobiliária mensal | **29.612** |
-| Localidades imobiliárias identificadas | **1.626** |
-| Jobs configurados no Databricks Bundle | **7** |
-| Perfis territoriais exploratórios | **9** |
-| Tabelas do modelo dimensional Delta | **7** |
-| Distritos no consumidor físico do frontend | **96 (100%)** |
+| Componente | Resultado ou situação |
+|---|---|
+| Recorte territorial | 96 distritos oficiais de São Paulo |
+| Tabela analítica principal | `workspace.gold.distritos_wide` |
+| Granularidade da Gold | 1 linha por distrito |
+| Amplitude da Gold | 254 colunas, incluindo coordenadas |
+| Coordenadas geográficas | 96 de 96 distritos |
+| Modelagem dimensional | 4 dimensões e 3 fatos físicos em Delta Lake |
+| Modelo exploratório de perfis | K-Means com 9 grupos, comparado com Ward |
+| Consumer do MVP | `workspace.gold.bairroiq_frontend_v2`, 96 linhas e 20 campos |
+| Interface | Streamlit V2 homologado em demonstração privada |
+| Arquitetura Lambda SSP | Batch, Speed e Serving independentes da Gold oficial |
+| Auditoria da Serving SSP | 250.606 ocorrências, 9 meses, 96 distritos e 2 categorias |
+| Reconciliação SSP | 1.728 linhas Batch e 1.728 linhas Serving, com 0 divergências |
+| Agendamento Lambda | Configurado para dia 10 às 10h, fuso de São Paulo, mas pausado |
+| Integração e entrega | GitHub Actions e Databricks Asset Bundles com deploy controlado |
+| Infraestrutura como código | Terraform versionado e validado por CI |
 
-### O que foi construído
+Esses números não se referem todos ao mesmo conjunto de dados. A **Gold oficial** é uma fotografia territorial construída a partir das fontes e períodos documentados na camada Silver. A **Serving da Lambda** é uma publicação privada e independente das versões do arquivo anual da SSP. Uma não atualiza a outra automaticamente. Preservar essa distinção impede que uma carga recém-processada altere silenciosamente os indicadores utilizados pelo aplicativo ou os perfis já calculados.
 
-- **Data Lakehouse:** arquitetura Medallion com camadas Bronze, Silver e Gold utilizando Databricks, Apache Spark e Delta Lake.
-- **Integração multifuente:** consolidação de dados do IBGE, GeoSampa, ObservaSampa, SSP-SP e referências do mercado imobiliário.
-- **Base analítica geográfica:** tabela com 254 atributos para os 96 distritos oficiais do município.
-- **Georreferenciamento:** cálculo de centroides geográficos a partir da malha distrital oficial do IBGE 2022.
-- **Associação territorial:** processo de correspondência entre bairros imobiliários e distritos administrativos, utilizando OpenStreetMap e validação dos vínculos.
-- **Data Quality:** testes automatizados de integridade, consistência, granularidade, cobertura e conformidade dos dados.
-- **DataOps e CI/CD:** pipelines de integração contínua, validação de Databricks Asset Bundles e deploy controlado.
-- **Governança:** contratos de dados, documentação das 254 colunas, comentários no Unity Catalog, rastreabilidade e versionamento Delta.
-- **Machine Learning:** comparação de K-Means e agrupamento hierárquico Ward para identificar perfis exploratórios dos 96 distritos; nove perfis selecionados para análise, sem classificação de melhor ou pior região.
-- **Modelagem dimensional:** sete tabelas Delta com dimensões e fatos para distritos, perfis, indicadores e prioridades de ocorrências.
-- **Camada de consumo:** tabela `workspace.gold.bairroiq_frontend_v1`, materializada com 96 registros, 13 campos físicos e seis informações previstas para a interface.
-- **Auditoria do produto de dados:** conferência do schema, chaves, integridade SHA256, faixas das métricas e controle de publicação.
+Os resultados acima documentam a execução e a auditoria realizadas. Eles não significam que todas as fontes estejam atualizadas na mesma data, nem que o produto tenha recebido autorização para recomendação residencial pública.
 
----
+## 3. Arquitetura da solução
 
-## Arquitetura da solução
+O projeto adota um **Lakehouse Medallion** para consolidar dados de diferentes formatos e um fluxo independente de **arquitetura Lambda** para demonstrar tratamento de republicações da SSP. Os dois desenhos coexistem porque resolvem problemas diferentes. Bronze, Silver e Gold organizam qualidade e transformação de dados; Batch, Speed e Serving tratam a recomputação e a reconciliação entre versões de uma fonte.
 
-O projeto utiliza a arquitetura **Medallion**, organizando o processamento em três camadas e conectando a Gold a componentes de modelagem, inteligência territorial e consumo.
+A implementação é composta por dois fluxos independentes. No **fluxo territorial principal**, os dados das fontes públicas atravessam Raw, Bronze e Silver até formar a Gold distrital, que sustenta a modelagem dimensional, os experimentos de Machine Learning e o Consumer V2 utilizado pelo Streamlit. No **fluxo privado da SSP**, novas versões da publicação anual são coletadas e tratadas em Bronze e Silver próprias; os caminhos Batch e Speed são reconciliados antes da publicação da Serving. Essa Serving não alimenta automaticamente a Gold oficial, porque a promoção de um novo recorte temporal exige validação dos indicadores, versionamento e revisão dos componentes dependentes.
 
-```text
-                   FONTES DE DADOS
-                          |
-          +---------------+---------------+
-          |               |               |
-        IBGE          GeoSampa        SSP-SP
-          |               |               |
-     ObservaSampa    Mercado Imobiliário
-          |               |
-          +-------+-------+
-                  |
-                  v
-          BRONZE | Raw Data
-       Dados originais preservados
-                  |
-                  v
-          SILVER | Trusted Data
-      Limpeza, tipagem, padronização
-       e enriquecimento territorial
-                  |
-                  v
-          GOLD | Analytics
-       96 distritos oficiais
-          254 atributos
-       Coordenadas geográficas
-                  |
-          +-------+-------+
-          |               |
-          v               v
-     MACHINE LEARNING   STAR SCHEMA
-       9 perfis        4 dimensões
-     exploratórios       3 fatos
-          |               |
-          +-------+-------+
-                  |
-                  v
-       CONSUMER DELTA V1
-       96 distritos auditados
-      6 colunas de exibição
-                  |
-                  v
-       APLICAÇÃO WEB (futura)
-        Mapas e comparativos
-       Exploração de perfis
-      Preferências do usuário
-```
+O processamento utiliza **Databricks, Apache Spark e Delta Lake**. Spark foi escolhido para oferecer um motor comum a ingestão, transformações, validações distribuídas e consultas analíticas. Delta Lake fornece armazenamento transacional por tabela, evolução controlada de versões e a possibilidade de verificar conteúdos já materializados antes de reprocessar. O **Unity Catalog** centraliza namespaces, permissões e metadados, de modo que contratos e responsabilidades não fiquem escondidos dentro de notebooks isolados.
 
-### Camadas de dados
+A arquitetura foi deliberadamente organizada em **produtos de dados com contratos explícitos**. A Gold conserva a amplitude analítica, o Star Schema oferece relações apropriadas para consultas OLAP e o Consumer V2 entrega um conjunto pequeno e estável de campos à interface. Essa separação facilita testar, versionar e explicar cada camada sem obrigar o frontend a reproduzir regras de transformação complexas.
 
-| Camada | Responsabilidade | Implementação |
+### 3.1. Tecnologias e decisões
+
+| Tecnologia | Papel e motivo da escolha |
+|---|---|
+| Python e SQL | Python concentra validação, ingestão e lógica geoespacial; SQL torna agregações e regras de dados inspecionáveis |
+| PySpark | Processamento distribuído e contratos de escrita para Bronze, Silver e Gold |
+| Delta Lake | Persistência versionável, reconciliação e reexecuções controladas |
+| Unity Catalog | Organização de tabelas, metadados, permissões e linhagem quando disponível |
+| GeoPandas e ferramentas geoespaciais | Associação de coordenadas à malha oficial, com verificação de CRS e geometrias |
+| scikit-learn | Comparação reproduzível de métodos clássicos de agrupamento territorial |
+| Databricks Asset Bundles | Definições versionadas de Jobs e promoção controlada de código |
+| Terraform e HCP Terraform | Descrição declarativa de schemas e Volume Raw e validação de infraestrutura |
+| GitHub Actions | Testes e validações antes de integrar e implantar mudanças |
+| Streamlit e Plotly | MVP navegável, com filtros, mapas, critérios personalizados e gráficos comparativos |
+
+A implementação foi concebida para aproveitar os recursos de desenvolvimento disponíveis e não depender de um serviço pago dedicado para cada função. Isso não significa que compute, SQL Warehouse ou Databricks Apps tenham custo zero em qualquer ambiente. Por esse motivo, o processamento é controlado, os snapshots são reutilizados quando idênticos e os agendamentos permanecem desativados até decisão explícita de operação.
+
+## 4. Fontes, granularidade e integração territorial
+
+| Fonte | Informação utilizada | Cuidado de interpretação |
 |---|---|---|
-| Bronze | Ingestão e preservação dos dados originais | Delta Lake e volumes gerenciados |
-| Silver | Tratamento, validação e enriquecimento | PySpark, SQL e processamento geoespacial |
-| Gold | Consolidação dos indicadores por distrito | Wide Table com 254 colunas |
-| Modelagem | Organização de dimensões e fatos | 7 tabelas Delta materializadas |
-| Inteligência territorial | Segmentação exploratória por perfis | K-Means K=9, com comparação a Ward |
-| Consumo | Dados preparados para visualização | `bairroiq_frontend_v1` (Delta, interno) |
-| Aplicação web | Mapas, filtros e comparação | Em desenvolvimento |
+| IBGE e malha distrital 2022 | População, domicílios, densidade, limites e identificação oficial | Distrito administrativo não é sinônimo de bairro de anúncio imobiliário |
+| GeoSampa | Equipamentos e referências de infraestrutura urbana | Equipamento cadastrado não mede capacidade, frequência ou qualidade do serviço |
+| ObservaSampa | Indicadores socioeconômicos e urbanos | Cada indicador possui período de referência próprio; empregos formais usados no modelo têm referência de 2021 |
+| SSP-SP | Registros de roubos, furtos e outras ocorrências | Registros não equivalem a todos os eventos reais nem representam risco individual |
+| Mercado imobiliário | Estoque e indicadores de anúncios | Cobertura territorial depende de correspondências aprovadas |
+| OpenStreetMap | Referências de localização de bairros | É apoio geográfico à associação, não uma fonte oficial dos limites dos distritos |
 
-O processamento foi desenvolvido no Databricks, com governança pelo Unity Catalog.
+O maior obstáculo de integração não era simplesmente reunir arquivos. As fontes utilizam **unidades territoriais diferentes**. Um nome de bairro presente em anúncios pode não coincidir com o nome de um distrito, e uma correspondência baseada somente em texto poderia atribuir imóveis ao lugar errado. Foi criado um processo de associação de localidades imobiliárias a distritos, com referências OSM, geração de candidatos, revisão e aprovação explícita.
 
----
+Na última auditoria documentada dessa associação, existiam **1.626 localidades imobiliárias**, das quais **93 correspondências estavam aprovadas**. O estoque total considerado era de **70.706**, com **28.085 unidades de estoque associadas**, equivalentes a **39,72%**. A diferença não foi preenchida por suposições, porque números aparentemente completos com endereçamento incerto prejudicariam a confiabilidade do produto. Os indicadores imobiliários precisam ser lidos à luz dessa cobertura parcial; eles não são representativos de todo o município por construção.
 
-## Fontes de informação
+O mesmo princípio foi aplicado às ocorrências da SSP. A associação espacial utiliza latitude, longitude, sistema de referência geográfica e o polígono distrital oficial. Registros sem associação válida são auditados, não atribuídos por aproximação arbitrária. A malha é validada para **96 códigos distritais distintos**. O cálculo dos centroides utiliza a projeção métrica **EPSG:31983** e publica coordenadas em **EPSG:4326**, evitando calcular o centro geométrico diretamente em graus geográficos.
 
-| Fonte | Dados utilizados | Aplicação |
-|---|---|---|
-| **IBGE** | População, domicílios, características demográficas e malha distrital | Perfil populacional e referência territorial |
-| **GeoSampa** | Equipamentos públicos e infraestrutura urbana | Disponibilidade de serviços por distrito |
-| **ObservaSampa** | Indicadores sociais, econômicos, educacionais e urbanos | Condições socioeconômicas |
-| **SSP-SP** | Registros de ocorrências criminais | Indicadores de segurança pública |
-| **Mercado imobiliário** | Anúncios, preços por metro quadrado e modalidades de transação | Análise de oferta e preços de imóveis |
-| **OpenStreetMap** | Referências geográficas de localidades | Apoio à associação entre bairros e distritos |
+## 5. Engenharia de dados: Raw, Bronze, Silver e Gold
 
-Os indicadores preservam as unidades e os períodos de referência identificados em suas fontes.
+### Raw e Bronze
 
-**Não possuem todos uma mesma data de observação.** Os períodos ainda não confirmados são tratados como pendências de documentação, nunca inferidos pela data da execução.
+A Raw preserva os arquivos de origem e os metadados de coleta. A Bronze representa o ponto de entrada estruturado para as transformações. A opção por preservar a versão recebida, em vez de sobrescrever o arquivo anterior, permite auditar mudanças feitas pela fonte pública e reproduzir um processamento com o mesmo conteúdo.
 
-### Integração territorial
+A ingestão não usa a data da execução como identidade do dado. Onde há versionamento de arquivos, o **SHA256 do conteúdo** identifica a publicação; onde há linha de origem, a aba e a posição são mantidas como identidade dentro daquela publicação. Isso reduz duplicações em reexecuções e evita tratar uma alteração da fonte como se fosse um dado totalmente novo sem histórico.
 
-Uma das dificuldades técnicas do projeto é a diferença entre os bairros utilizados pelo mercado imobiliário e os distritos administrativos oficiais.
+### Silver
 
-Para tratar essa incompatibilidade, foi implementado um processo de associação territorial com validação e homologação de correspondências.
+A Silver implementa padronização, validação de tipos, tratamento de referências geográficas e consolidação da informação no grão adequado. A camada não preenche ausências com valores artificiais apenas para produzir um dataset sem nulos. Sempre que um indicador depende de cobertura parcial, denominador específico ou período de referência, essa condição é preservada no contrato e na documentação.
 
-Na última validação documentada da cobertura imobiliária:
+Os runners das fontes IBGE, GeoSampa, ObservaSampa, imóveis e SSP são separados porque cada fonte possui regras de extração e validação próprias. Essa separação facilita localizar problemas de qualidade e impede que uma mudança no layout de um fornecedor afete silenciosamente toda a cadeia de dados.
 
-| Métrica | Resultado |
-|---|---:|
-| Localidades imobiliárias inventariadas | 1.626 |
-| Bairros com associação aprovada | 93 |
-| Estoque imobiliário total da fonte | 70.706 |
-| Estoque associado a distritos | 28.085 |
-| Cobertura do estoque | 39,72% |
+### Gold Wide
 
-A cobertura é apresentada explicitamente para evitar interpretações incorretas. Os imóveis sem associação territorial aprovada não são distribuídos arbitrariamente entre distritos.
+A tabela `workspace.gold.distritos_wide` consolida **96 registros e 254 atributos**. Foi adotado um modelo **Wide Table** porque o objetivo principal desta camada é consultar rapidamente um distrito e obter suas características lado a lado, inclusive como entrada para experimentos de Machine Learning. O código oficial `CD_DIST` garante uma linha por distrito, independentemente de diferenças de grafia nos nomes.
 
----
+A Gold não cria uma data universal para os 254 atributos. Cada indicador utiliza a referência mais recente **disponível na fonte usada na construção do snapshot**, que pode ser diferente das demais. Não existe uma série temporal única nessa tabela. Incluir uma coluna de data de execução como se fosse a data de observação distorceria a interpretação de indicadores históricos. O histórico técnico de versões Delta não substitui o período estatístico de cada fonte.
 
-## Base analítica e georreferenciamento
-
-O principal produto de dados é a tabela:
-
-`workspace.gold.distritos_wide`
-
-Ela consolida os indicadores disponíveis em uma estrutura com **uma linha por distrito administrativo**.
-
-A tabela inclui informações de população, domicílios, infraestrutura, indicadores socioeconômicos, segurança pública, mercado imobiliário e localização geográfica.
-
-### Coordenadas oficiais
-
-Todos os 96 distritos possuem coordenadas de latitude e longitude obtidas a partir de centroides calculados sobre a malha oficial do IBGE 2022.
-
-O processamento utiliza uma projeção métrica (EPSG:31983) para o cálculo dos centroides, com transformação posterior para WGS84 (EPSG:4326).
-
-Esses pontos representam os centros geométricos dos distritos, e não endereços, centros comerciais ou concentrações populacionais.
-
-### Exemplo de consulta
+A tabela possui documentação de campos, definições, unidades, limitações e regras de transformação no [dicionário de dados da Gold](docs/dicionario_gold_distritos_wide.md), além do [contrato estruturado em JSON](docs/dicionario_gold_distritos_wide.json). Também foram implementadas verificações de schema, cardinalidade, integridade, georreferenciamento e consistência da reconstrução a partir das fontes.
 
 ```sql
 SELECT
-    NM_DIST AS distrito,
-    ibge_total_pessoas AS populacao_censo,
-    imv_venda_estoque AS estoque_imoveis_venda,
+    CD_DIST,
+    NM_DIST,
     latitude,
-    longitude
+    longitude,
+    ibge_total_pessoas
 FROM workspace.gold.distritos_wide
 ORDER BY NM_DIST;
 ```
 
-A consulta exemplifica como combinar dados demográficos, imobiliários e geográficos em uma mesma estrutura analítica.
+## 6. Modelagem dimensional: Star Schema
 
-O [dicionário de dados completo](docs/dicionario_gold_distritos_wide.md) apresenta as definições, unidades, regras de cálculo, origens e limitações dos 254 atributos.
+A Wide Table é apropriada para leitura rápida e para o treinamento dos modelos, mas não é a melhor forma de representar todas as relações analíticas. Por isso foi materializado um **modelo dimensional Delta**, com dimensões e fatos próprios, que permite consultar indicadores, perfis e prioridades por distrito sem repetir metadados descritivos em cada análise.
 
----
-
-## Inteligência territorial e perfis de distrito
-
-Além da consolidação dos indicadores, o BairroIQ desenvolveu uma abordagem exploratória de **Machine Learning para identificar características compartilhadas entre distritos**.
-
-Foram comparados K-Means e Ward, considerando indicadores socioeconômicos, densidade, infraestrutura e ocorrências registradas.
-
-O modelo **K-Means com nove grupos** foi escolhido para a experiência exploratória: todos os 96 distritos foram classificados, com grupos de 6 a 22 distritos.
-
-Os perfis **não são notas de qualidade de vida nem recomendações de onde morar**.
-
-### Perfis territoriais identificados
-
-| Perfil territorial proposto | Distritos |
-|---|---:|
-| P01 — Mais Praças, Vida Urbana | 9 |
-| P02 — Praças em Regiões Menos Densas | 7 |
-| P03 — Áreas Pouco Povoadas | 6 |
-| P04 — Menos Roubos e Furtos | 22 |
-| P05 — Transporte Coletivo em Destaque | 7 |
-| P06 — Muitos Moradores por Km² | 8 |
-| P07 — Empregos em Destaque | 12 |
-| P08 — Mais Moradores, Menos Transporte | 19 |
-| P09 — Escolas e UBS por Habitante | 6 |
-| **Total** | **96** |
-
-### Avaliação do modelo
-
-| Métrica | Resultado |
-|---|---:|
-| Algoritmo selecionado | K-Means |
-| Número de clusters | 9 |
-| Silhouette Score | 0,194467 |
-| Davies-Bouldin Index | 1,334164 |
-| Calinski-Harabasz Index | 27,193823 |
-| Estabilidade mediana (ARI) | 0,470918 |
-| Menor grupo | 6 distritos |
-| Maior grupo | 22 distritos |
-
-Essas métricas mostram limitações de separação e estabilidade. Os nomes dos grupos ainda aguardam homologação editorial.
-
-Em especial:
-
-- **P04 — Menos Roubos e Furtos:** descreve padrões relativos de registros de roubos e furtos, não segurança individual. O título permanece candidato.
-- **P07 — Empregos em Destaque:** o indicador se refere a empregos formais de **2021**, não a vagas disponíveis atualmente.
-- Os perfis são agrupamentos estatísticos exploratórios, sem comprovação de superioridade de uma região sobre outra.
-
-A [metodologia do catálogo v3](docs/ml/metodologia_catalogo_perfis_v3.md) e a [auditoria semântica](docs/governanca/encerramento_auditoria_semantica_v3.md) apresentam os critérios de comparação, resultados, ressalvas e condições para homologação.
-
----
-
-## Modelagem dimensional — Star Schema
-
-Para transformar os indicadores territoriais em análises comparáveis e rastreáveis, o BairroIQ conta com um **modelo dimensional materializado em Delta Lake**, composto por **quatro dimensões e três tabelas de fatos**.
-
-A estrutura funciona como uma *constelação de fatos*: distritos, indicadores, perfis e snapshots são referências compartilhadas pelas análises.
-
-### Estrutura e relacionamentos
-
-O diagrama abaixo representa as entidades do modelo dimensional e seus principais relacionamentos.
-
-```mermaid
-erDiagram
-    DIM_SNAPSHOT ||--o{ DIM_DISTRITO : versiona
-    DIM_SNAPSHOT ||--o{ DIM_PERFIL : versiona
-    DIM_SNAPSHOT ||--o{ DIM_INDICADOR : versiona
-
-    DIM_SNAPSHOT ||--o{ FATO_DISTRITO_INDICADOR : referencia
-    DIM_SNAPSHOT ||--o{ FATO_DISTRITO_PERFIL : referencia
-    DIM_SNAPSHOT ||--o{ FATO_PRIORIDADE_OCORRENCIAS : referencia
-
-    DIM_DISTRITO ||--o{ FATO_DISTRITO_INDICADOR : possui
-    DIM_INDICADOR ||--o{ FATO_DISTRITO_INDICADOR : descreve
-
-    DIM_DISTRITO ||--o| FATO_DISTRITO_PERFIL : recebe
-    DIM_PERFIL ||--o{ FATO_DISTRITO_PERFIL : classifica
-
-    DIM_DISTRITO ||--o| FATO_PRIORIDADE_OCORRENCIAS : possui
-
-    DIM_SNAPSHOT {
-        string snapshot_id PK
-        string catalogo_versao
-        string sha256_gold
-        string status
-        boolean disponivel_publicamente
-    }
-
-    DIM_DISTRITO {
-        string snapshot_id PK
-        bigint CD_DIST PK
-        string NM_DIST
-        double latitude
-        double longitude
-    }
-
-    DIM_PERFIL {
-        string perfil_sk PK
-        string snapshot_id FK
-        string perfil_id
-        string nome_provisorio
-        bigint qtd_distritos
-    }
-
-    DIM_INDICADOR {
-        string indicador_sk PK
-        string snapshot_id FK
-        string indicador_id
-        string rotulo
-        string unidade
-        string fonte
-    }
-
-    FATO_DISTRITO_INDICADOR {
-        string snapshot_id PK
-        bigint CD_DIST PK
-        string indicador_sk PK
-        double valor_numerico
-    }
-
-    FATO_DISTRITO_PERFIL {
-        string snapshot_id PK
-        bigint CD_DIST PK
-        string perfil_sk FK
-        double silhouette_individual
-        double distancia_ao_centro_do_perfil
-    }
-
-    FATO_PRIORIDADE_OCORRENCIAS {
-        string snapshot_id PK
-        bigint CD_DIST PK
-        bigint posicao_relativa_entre_96
-        double indice_ordenacao_ocorrencias
-    }
-```
-
-### Estrutura física no Databricks
-
-As sete tabelas foram materializadas em **Delta Lake**, no catálogo e schema `workspace.gold`, utilizando o prefixo `bairroiq_`.
-
-| Tabela física | Finalidade | Registros do snapshot v1 |
+| Tabela Delta em `workspace.gold` | Grão ou responsabilidade | Registros no snapshot validado |
 |---|---|---:|
-| `bairroiq_dim_snapshot` | Identificação, versionamento e estado do snapshot | 1 |
-| `bairroiq_dim_distrito` | Cadastro oficial e coordenadas geográficas | 96 |
-| `bairroiq_dim_perfil` | Catálogo dos nove perfis territoriais exploratórios | 9 |
-| `bairroiq_dim_indicador` | Metadados, unidades e fontes dos indicadores | 11 |
-| `bairroiq_fato_distrito_indicador` | Indicadores quantitativos por distrito | 1.056 |
-| `bairroiq_fato_distrito_perfil` | Associação dos distritos aos perfis territoriais | 96 |
-| `bairroiq_fato_prioridade_ocorrencias` | Ordenação relativa de roubos e furtos | 96 |
-| **Total** | **7 tabelas Delta** | **1.365** |
+| `bairroiq_dim_snapshot` | Versão, hash e disponibilidade do snapshot | 1 |
+| `bairroiq_dim_distrito` | Distrito por snapshot | 96 |
+| `bairroiq_dim_perfil` | Cadastro de perfis territoriais | 9 |
+| `bairroiq_dim_indicador` | Metadados dos indicadores | 11 |
+| `bairroiq_fato_distrito_indicador` | Distrito, indicador e snapshot | 1.056 |
+| `bairroiq_fato_distrito_perfil` | Associação de distrito ao perfil | 96 |
+| `bairroiq_fato_prioridade_ocorrencias` | Prioridade relativa de registros de crimes | 96 |
+| **Total** | **4 dimensões e 3 fatos** | **1.365** |
 
-### Governança e integridade
+A presença de `snapshot_id` nas chaves evita unir dados de versões diferentes como se fossem uma única fotografia. A dimensão de snapshot é registrada por último, após as validações das demais tabelas. Essa decisão protege o consumo contra uma execução parcialmente concluída, embora as sete escritas não sejam uma transação única entre tabelas.
 
-A modelagem foi desenvolvida para garantir rastreabilidade dos dados, consistência dos relacionamentos e evolução controlada das informações.
+Também evitamos criar uma dimensão calendário fictícia a partir da data da execução. Como a Gold agrega indicadores com períodos diferentes, uma `dim_data` única sugeriria uma temporalidade que os dados não possuem. Para análises de tendência, a referência adequada é uma Silver que preserve explicitamente o período original.
 
-- **Chaves oficiais:** relacionamento distrital por `snapshot_id` e `CD_DIST`.
-- **Integridade referencial:** verificações das associações entre dimensões e fatos.
-- **Versionamento:** snapshots identificados por versão do catálogo e hash SHA256 da fonte.
-- **Imutabilidade:** materialização append-only, sem sobrescrita dos snapshots anteriores.
-- **Consistência:** conferência de schema, cardinalidade, chaves e conteúdo.
-- **Publicação controlada:** dados internos, sem disponibilização pública automática.
-
-A dimensão `bairroiq_dim_snapshot` é registrada por último na materialização, funcionando como marcador de conclusão.
-
-As sete tabelas não constituem uma transação única. O modelo mantém verificações estritas para impedir o consumo de snapshots parciais ou divergentes.
-
-### Exemplo de consulta
-
-A consulta abaixo combina distritos e indicadores, preservando as chaves e o snapshot de referência.
+Uma consulta OLAP pode recuperar os indicadores por distrito e unidade sem confundir taxas com quantidades aditivas:
 
 ```sql
 SELECT
     d.NM_DIST AS distrito,
     i.rotulo AS indicador,
-    f.valor_numerico,
     i.unidade,
-    i.periodo_referencia_documentado
-
-FROM workspace.gold.bairroiq_fato_distrito_indicador AS f
-
-INNER JOIN workspace.gold.bairroiq_dim_distrito AS d
-    ON f.snapshot_id = d.snapshot_id
-    AND f.CD_DIST = d.CD_DIST
-
-INNER JOIN workspace.gold.bairroiq_dim_indicador AS i
-    ON f.snapshot_id = i.snapshot_id
-    AND f.indicador_sk = i.indicador_sk
-
-WHERE f.snapshot_id = 'v3.0.0-candidato|726091fefefa868fd5d0d2c6929b1d68c4849941f4c7510b4fee0d93a075d38b'
-
+    f.valor_numerico
+FROM workspace.gold.bairroiq_fato_distrito_indicador f
+JOIN workspace.gold.bairroiq_dim_distrito d
+  ON f.snapshot_id = d.snapshot_id
+ AND f.CD_DIST = d.CD_DIST
+JOIN workspace.gold.bairroiq_dim_indicador i
+  ON f.snapshot_id = i.snapshot_id
+ AND f.indicador_sk = i.indicador_sk
 ORDER BY distrito, indicador;
 ```
 
-**Resultado esperado:** 1.056 registros, correspondentes a 96 distritos e 11 indicadores por distrito.
+O modelo, as regras de escrita protegida e os controles de qualidade estão descritos no [contrato do Star Schema](docs/modelagem/star_schema_v1_delta_contrato.md).
 
-A documentação detalhada está no [contrato do Star Schema Delta V1](docs/modelagem/star_schema_v1_delta_contrato.md).
+## 7. Machine Learning: identificação de perfis territoriais
 
-O modelo permanece **interno, versionado e não autorizado para publicação pública**.
+O problema de Machine Learning não foi tratado como previsão de onde alguém deve morar. A ausência de uma variável objetivo confiável para esse tipo de recomendação tornaria inadequado treinar um modelo supervisionado com rótulos inventados. Utilizamos **clusterização não supervisionada** para investigar padrões de similaridade entre os distritos e apresentar opções de exploração.
 
----
+Comparamos **K-Means** e **agrupamento hierárquico Ward** sobre dados padronizados. Ambos dependem de distâncias e são sensíveis à escolha de variáveis e escala, portanto a comparação não foi reduzida a uma única métrica. Foram avaliados valores de `K` entre 2 e 12, tamanhos dos grupos, estabilidade sob subamostragem, distribuição territorial e capacidade de explicar os perfis a usuários não técnicos.
 
-## Camada de consumo preparada para o frontend
+### 7.1. Por que K-Means e por que nove grupos
 
-A partir das sete tabelas do Star Schema, foi materializado um dataset específico para a futura experiência web.
+O objetivo inicial do produto era oferecer aproximadamente **dez perfis**, mas esse número é uma preferência de navegação, não uma propriedade comprovada dos dados. A análise com dez grupos gerou grupos muito pequenos, inclusive agrupamentos unitários. Manter `K=10` apenas para cumprir uma meta visual significaria oferecer tipos territoriais frágeis e difíceis de explicar.
 
-**Essa tabela de consumo não substitui o modelo dimensional**; ela oferece uma leitura simplificada dos indicadores já preparados e auditados.
+A configuração candidata **K-Means com nove grupos** foi escolhida porque mantém tamanhos entre **6 e 22 distritos**, apresenta somente **três distritos com Silhouette individual negativa** e permite uma representação de perfis que pode ser consultada de forma repetível. O K-Means também oferece centroides no espaço de atributos e uma estratégia operacional simples para classificação futura, desde que o tratamento dos dados e a versão do modelo sejam preservados.
 
-### Tabela de consumo
+Isso **não significa que K-Means seja estatisticamente superior ao Ward em tudo**. No experimento comparável documentado, Ward com oito grupos apresentou Davies-Bouldin menor e estabilidade ARI maior. O tradeoff adotado privilegiou uma granularidade de produto próxima ao objetivo, a ausência de grupos minúsculos na opção selecionada e a facilidade de operacionalização. A separação global do K-Means K9 continua modesta e os perfis permanecem exploratórios.
 
-`workspace.gold.bairroiq_frontend_v1`
+| Métrica | Como interpretar | K-Means K9 | Ward K8 |
+|---|---|---:|---:|
+| Silhouette | Mede coesão e separação; maior é melhor, mas valores próximos de zero indicam sobreposição | 0,194467 | 0,193960 |
+| Davies-Bouldin | Mede similaridade entre grupos segundo dispersão e separação; menor é melhor | 1,334164 | 1,202354 |
+| Calinski-Harabasz | Compara dispersão entre e dentro dos grupos; maior é melhor para cenários comparáveis | 27,193823 | Não consolidado nesta tabela |
+| ARI mediana de estabilidade | Concordância de partições em reamostragens; valores maiores indicam maior estabilidade | 0,470918 | 0,629504 |
+| Menor grupo | Verifica a existência de segmentos pouco representados | 6 | 4 |
+| Maior grupo | Mostra concentração da segmentação | 22 | 23 |
 
-Ela contém **uma linha por distrito e snapshot**, com 13 campos técnicos.
+Os resultados acima correspondem às configurações registradas na metodologia, incluindo variações de tratamento de densidade. Não devem ser lidos como um experimento causal isolando apenas o algoritmo. O índice Silhouette também **não é acurácia**: não existe um conjunto de rótulos verdadeiros dos perfis territoriais para medir acertos ou erros.
 
-Para a experiência web, foram definidas seis informações principais:
+A análise mais simples com poucos clusters chegou a produzir valores de Silhouette maiores, mas grupos amplos demais para representar a diversidade de experiências da interface. Da mesma forma, escolher dez ou onze agrupamentos somente para aumentar o número de opções comprometeria a interpretabilidade. Nove grupos foi um compromisso operacional explicitamente documentado, não a descoberta de nove categorias naturais definitivas.
 
-| Informação | O que representa |
-|---|---|
-| Distrito | Nome do distrito administrativo oficial |
-| Empregos | Posição relativa no indicador de empregos formais de 2021 (0–100) |
-| Roubos | Registros de roubos por 1.000 habitantes |
-| Segurança | Índice relativo inverso de ocorrências de roubos e furtos (0–100) |
-| Mobilidade | Índice relativo de equipamentos de transporte coletivo (0–100) |
-| Cluster | Perfil territorial exploratório, ainda não homologado |
+### 7.2. Perfis territoriais candidatos
 
-### Estrutura técnica
+| Perfil | Nome mostrado ou proposto | Distritos |
+|---|---|---:|
+| P01 | Mais Praças, Vida Urbana | 9 |
+| P02 | Praças em Regiões Menos Densas | 7 |
+| P03 | Áreas Pouco Povoadas | 6 |
+| P04 | Menos Roubos e Furtos | 22 |
+| P05 | Transporte Coletivo em Destaque | 7 |
+| P06 | Muitos Moradores por Km² | 8 |
+| P07 | Empregos em Destaque | 12 |
+| P08 | Mais Moradores, Menos Transporte | 19 |
+| P09 | Escolas e UBS por Habitante | 6 |
+| **Total** | | **96** |
 
-O consumidor físico possui os seguintes campos:
+Os títulos são rótulos de comunicação, sujeitos a ressalvas editoriais. O perfil P04 não assegura que todos os seus distritos apresentem taxas menores em todas as medidas; P07 reflete o indicador histórico de empregos formais e não a disponibilidade atual de vagas. Praças e corredores verdes cadastrados não equivalem a arborização de ruas, e equipamentos de transporte por habitante não indicam necessariamente menor tempo de viagem.
 
-| Campo | Tipo | Descrição |
-|---|---|---|
-| `snapshot_id` | STRING | Versão dos dados e do modelo |
-| `cd_dist` | BIGINT | Código oficial do distrito |
-| `distrito` | STRING | Nome do distrito |
-| `latitude` | DOUBLE | Latitude do centroide |
-| `longitude` | DOUBLE | Longitude do centroide |
-| `perfil_id` | STRING | Identificador técnico do perfil |
-| `cluster` | STRING | Perfil territorial e rótulo provisório |
-| `empregos` | DOUBLE | Índice relativo de empregos |
-| `roubos` | DOUBLE | Taxa de roubos por 1.000 habitantes |
-| `seguranca` | DOUBLE | Índice relativo de ocorrências |
-| `mobilidade` | DOUBLE | Índice relativo de mobilidade |
-| `tipo_territorio` | STRING | Identificação da unidade territorial |
-| `publicacao_autorizada` | BOOLEAN | Controle lógico de publicação |
+A estabilidade e as exceções são documentadas. Mooca, Socorro e Lajeado apresentaram Silhouette individual negativa na auditoria do catálogo K9, sinalizando fronteiras menos claras entre grupos. Eles não foram movidos manualmente para obter um resultado mais conveniente. Manter o output do algoritmo e explicar suas limitações foi preferível a ajustar classificações sem base reproduzível.
 
-### Auditoria física do Consumer V1
+Os notebooks, contratos e resultados estão em [docs/ml](docs/ml/). A [metodologia do catálogo K9](docs/ml/metodologia_catalogo_perfis_v3.md) e a [comparação inicial K-Means versus Ward](docs/ml/metodologia_comparacao.md) registram as versões dos experimentos, os critérios e as limitações de cada abordagem.
 
-A materialização física foi concluída e auditada em **05/11/2026**, com os seguintes resultados:
+## 8. Consumer V2 e aplicação Streamlit
 
-| Verificação | Resultado |
-|---|---|
-| Registros materializados | 96 |
-| Distritos distintos | 96 |
-| Perfis territoriais | 9 |
-| Campos técnicos | 13 |
-| Colunas de exibição | 6 |
-| Campos obrigatórios nulos | 0 |
-| Integridade SHA256 | Validada |
-| Reconciliação pós-escrita | `KEEP_VERIFIED` |
-| Publicação autorizada | `false` |
+O frontend não consulta diretamente 254 colunas nem precisa executar algoritmos de clusterização em cada interação. A Gold e o modelo dimensional alimentam o **Consumer V2**, uma tabela física destinada a disponibilizar os campos estritamente necessários para navegação e comparação:
 
-### Distribuição dos indicadores
+`workspace.gold.bairroiq_frontend_v2`
 
-| Métrica do consumidor | Mínimo | Máximo | Média entre distritos |
-|---|---:|---:|---:|
-| Empregos (índice relativo) | 0,00 | 100,00 | 50,00 |
-| Roubos (por 1.000 hab.) | 1,43 | 49,03 | 6,64 |
-| Segurança (índice relativo) | 0,00 | 98,40 | 49,48 |
-| Mobilidade (índice relativo) | 1,10 | 95,80 | 35,13 |
+Ela contém **96 distritos e 20 campos**, incluindo dados de consumo e metadados de auditoria. Essa escolha melhora a previsibilidade da interface, simplifica permissões e permite validar um contrato pequeno antes de abrir uma tela ao usuário. O Consumer V1 permanece como um artefato anterior versionado, mas **o MVP homologado utiliza o V2**.
 
-As médias são **simples entre distritos**, não ponderadas pela população.
+Os quatro índices personalizados são `green_leisure_score`, `safety_score`, `mobility_score` e `public_services_score`, em escala de 0 a 100. Empregos formais, densidade populacional e taxa de roubos aparecem como informações complementares, sem serem incorporados aos quatro pesos da personalização. Essa separação evita que o aplicativo misture silenciosamente unidades físicas com percentis ou notas relativas.
 
-Os índices não são medidas equivalentes entre si. O snapshot é uma versão de dados e modelo, **não** uma data única de referência.
+A aplicação **Streamlit V2** tem cinco experiências principais:
 
-A materialização está concluída **para uso interno**.
+1. **Personalizar cenário:** atribuir pesos aos quatro critérios de comparação.
+2. **Explorar e visualizar:** exibir limites distritais, filtros e Top 10 calculado a partir do cenário.
+3. **Comparar regiões:** selecionar distritos e analisar gráficos e indicadores lado a lado.
+4. **Perfis urbanos:** conhecer o agrupamento exploratório associado a cada distrito.
+5. **Fontes:** consultar a origem dos dados e as principais restrições metodológicas.
 
-Todas as linhas permanecem com `publicacao_autorizada = false`: isso não substitui a revisão efetiva de permissões do Unity Catalog, que deverá ocorrer antes de qualquer disponibilização externa.
+Os pesos são aplicados **na interface ao snapshot recebido**, não alteram a Gold, não reexecutam o K-Means e não modificam as propriedades dos distritos. O ranking resultante é uma ferramenta de exploração personalizada, não uma classificação oficial nem um parecer sobre segurança ou habitabilidade.
 
-A aplicação web ainda será desenvolvida.
+O mapa utiliza geometria distrital oficial disponibilizada em `streamlit/bairroiq-streamlit-v2/bairroiq/district_boundaries.geojson`. O app consulta o Databricks em modo somente leitura e valida campos, cardinalidade e consistência do snapshot antes de apresentar dados reais. Na homologação privada registrada em **8 de novembro de 2026**, foram testados mapa, ranking, filtros, comparação e perfis com o Consumer V2. A aplicação de homologação foi interrompida depois do teste.
 
-O [contrato do consumidor](docs/consumo/frontend_v1_delta_contrato.md) documenta os campos, as unidades, o controle de integridade e as regras de escrita protegida.
+**A demonstração privada não equivale à autorização para publicação pública.** O Consumer V2 mantém `publicacao_autorizada = false`. A configuração de prévia interna exige acesso restrito e opt-in explícito; o `app.yaml` versionado não habilita essa exceção por padrão. O aplicativo também oferece modo `sample` para testes com dados demonstrativos, sempre distinguindo esses dados dos 96 distritos reais.
 
----
+O código, as instruções de execução local, a configuração do Databricks Apps e as evidências da demonstração estão no [README do Streamlit V2](streamlit/bairroiq-streamlit-v2/README.md).
 
-## Engenharia, qualidade e governança
+## 9. Arquitetura Lambda para a SSP-SP
 
-O BairroIQ foi desenvolvido com foco em reprodutibilidade, confiabilidade e separação entre desenvolvimento, validação e publicação.
+A SSP disponibiliza arquivos anuais que podem ser republicados com meses adicionais ou correções. Sobrescrever o arquivo anterior permitiria obter o valor mais recente, mas apagaria as evidências necessárias para explicar **o que mudou**. Para tratar esse problema construímos um fluxo separado, com versionamento da fonte, reprocessamento integral de referência, cálculo de diferenças e publicação reconciliada.
 
-### Práticas implementadas
+A arquitetura possui três componentes lógicos:
 
-**Engenharia de Dados**
+**Batch:** recompõe as contagens do snapshot da fonte por ano, mês estatístico, distrito e tipo de ocorrência. Para cada mês identificado, gera todas as combinações de 96 distritos e duas categorias, incluindo as combinações com zero ocorrências. Isso torna o resultado comparável entre versões, mesmo quando um distrito não possui registros em determinado grupo.
 
-- Processamento distribuído com Apache Spark.
-- Modelagem Medallion e tabelas Delta.
-- Integração e normalização de múltiplas fontes.
-- Processamento e validação geoespacial.
-- Controle explícito da granularidade dos dados.
-- Materialização de Star Schema e de dataset específico para o frontend.
+**Speed:** calcula a diferença entre duas publicações por multiplicidade de hashes de linhas. Um mesmo conteúdo pode aparecer mais de uma vez, e `NUM_BO` não foi assumido como chave globalmente única. Assim, o mecanismo identifica inclusões e exclusões sem descartar repetições legítimas, e trata alterações de conteúdo como retirada de uma versão e inclusão de outra.
 
-**Qualidade e governança**
+**Serving:** recebe os números reconciliados, exigindo para cada chave a igualdade `Batch anterior + Speed = Batch atual`. Só depois da conferência é atualizado o apontador da versão publicada. Essa ordem diminui a chance de uma consulta recuperar um snapshot declarado como completo antes que seus dados tenham sido persistidos.
 
-- Testes de chaves nulas e duplicadas.
-- Validação de schemas, tipos e valores.
-- Verificação de consistência entre fontes e destinos.
-- Contratos de dados documentados.
-- Rastreabilidade de versões Delta.
-- Comentários de campos e metadados no Unity Catalog.
-- Validações estritas que falham quando detectam divergências.
-- Snapshots versionados, hashes de conteúdo e reconciliação pós-escrita.
-
-**DataOps e automação**
-
-- Controle de versão com Git e GitHub.
-- Testes automatizados com GitHub Actions.
-- Infraestrutura como código com Terraform.
-- Definição dos Jobs por Databricks Asset Bundles.
-- Workflows de CI/CD com validações de segurança.
-- Separação entre testes somente leitura e operações de publicação.
-- Materialização interna manual protegida, sem execução de escrita automática pelo CI/CD.
-
-A base Gold foi validada integralmente contra sua reconstrução a partir das fontes, com confirmação de identidade de schema e conteúdo.
-
-Os runners, testes e workflows do consumidor e do modelo dimensional estão versionados.
-
-A validação automatizada dos contratos não publica os dados nem executa materializações físicas automaticamente.
-
----
-
-## Stack tecnológica
-
-| Categoria | Tecnologias |
-|---|---|
-| Cloud e processamento | Databricks, Apache Spark, PySpark |
-| Armazenamento | Delta Lake, Unity Catalog |
-| Linguagens | Python, SQL |
-| Machine Learning | scikit-learn (K-Means, Ward) |
-| Processamento geoespacial | GeoPandas, Shapely, PyProj |
-| Infraestrutura como código | Terraform, HCP Terraform |
-| Orquestração e deploy | Databricks Asset Bundles |
-| CI/CD | GitHub Actions |
-| Versionamento | Git, GitHub |
-| Documentação e governança | Markdown, JSON, Unity Catalog |
-
-O desenvolvimento prioriza tecnologias de código aberto e recursos gratuitos, respeitando as limitações operacionais de cada plataforma.
-
----
-
-## Organização do repositório
-
-```text
-bairroiq/
-|
-|-- barrioiq_pipeline/
-|   |-- sql/
-|   |   |-- bronze/
-|   |   `-- silver/
-|   |
-|   |-- resources/
-|   |
-|   |-- gold_distritos_wide_runner.py
-|   |-- gold_distritos_wide_v4_runner.py
-|   |-- gold_distritos_geo.py
-|   |-- gold_distritos_wide_v4_strict_check.py
-|   |-- ml_perfis_territoriais_v2.py
-|   |-- ml_catalogo_perfis_v3.py
-|   |-- star_schema_v1_delta_runner.py
-|   |-- frontend_v1_runner.py
-|   |-- frontend_v1_delta_runner.py
-|   `-- distritos_centroides_ibge_2022.json
-|
-|-- tests/
-|   `-- Testes automatizados
-|
-|-- docs/
-|   |-- arquitetura/
-|   |-- ml/
-|   |-- modelagem/
-|   |-- consumo/
-|   |-- governanca/
-|   |-- dicionario_gold_distritos_wide.md
-|   `-- dicionario_gold_distritos_wide.json
-|
-|-- .github/
-|   `-- workflows/
-|
-`-- README.md
+```mermaid
+flowchart LR
+    A[Excel oficial SSP por HTTPS]
+    B[Raw: arquivo e SHA256]
+    C[Bronze SSP V2]
+    D[Silver SSP privada e georreferenciamento]
+    E[Batch: recomputação completa]
+    F[Speed: diferença multiconjunto]
+    G[Reconciliação por chave]
+    H[Serving privada]
+    I[Ponteiro da publicação vigente]
+    A --> B --> C --> D
+    D --> E --> G
+    D --> F --> G
+    G --> H --> I
 ```
 
-Os scripts de processamento, testes e configurações de deploy são versionados para facilitar auditoria, evolução e reprodução dos componentes.
+| Componente | Objeto físico |
+|---|---|
+| Bronze versionada | `workspace.bronze.ssp_ingestao_v2` |
+| Staging exclusiva | `workspace.bronze.atlas_sampa_ssp_stage_v2` |
+| Silver privada | `workspace.silver.atlas_sampa_ssp_v2` |
+| Batch | `workspace.observability.atlas_sampa_ssp_batch_v1` |
+| Speed | `workspace.observability.atlas_sampa_ssp_speed_v1` |
+| Serving | `workspace.observability.atlas_sampa_ssp_serving_v1` |
+| Controle da versão vigente | `workspace.observability.atlas_sampa_ssp_publication_v1` |
 
----
+O processamento seleciona ocorrências de **furto, art. 155, e roubo, art. 157**, referentes ao município de São Paulo, e as associa espacialmente aos distritos. Registros sem localização distrital ficam disponíveis para auditoria privada, mas não são somados arbitrariamente às contagens por distrito.
 
-## Documentação técnica
+### 9.1. Execução e resultado da homologação
 
-- [Dicionário completo da Gold — Markdown](docs/dicionario_gold_distritos_wide.md)
-- [Contrato de dados da Gold — JSON](docs/dicionario_gold_distritos_wide.json)
-- [Pipelines de Engenharia de Dados](barrioiq_pipeline/)
-- [Configurações dos Jobs](barrioiq_pipeline/resources/)
-- [Testes automatizados](tests/)
-- [Workflows de CI/CD](.github/workflows/)
-- [Modelagem dimensional — Star Schema Delta](docs/modelagem/star_schema_v1_delta_contrato.md)
-- [Perfis territoriais — metodologia e resultados](docs/ml/metodologia_catalogo_perfis_v3.md)
-- [Contrato de consumo do frontend](docs/consumo/frontend_v1_delta_contrato.md)
-- [Execução e validação no Databricks](docs/consumo/frontend_v1_delta_execucao_databricks.md)
+A primeira execução real do Job `atlas-sampa-ssp-lambda` foi concluída no Databricks Serverless depois da correção de compatibilidade do script. Uma auditoria SQL sobre as tabelas publicadas confirmou:
 
----
+| Indicador auditado | Resultado |
+|---|---:|
+| Ano de publicação | 2026 |
+| Meses estatísticos presentes | 9 |
+| Distritos com combinações publicadas | 96 |
+| Tipos de ocorrência | 2 |
+| Linhas Batch | 1.728 |
+| Linhas Serving | 1.728 |
+| Ocorrências em distritos na Serving | 250.606 |
+| Divergências Batch versus Serving | 0 |
+| Divergências Batch anterior + Speed versus Batch atual | 0 |
+| Resultado da auditoria | `APROVADO` |
 
-## Como validar os resultados
+A auditoria atesta a consistência **da publicação testada**. Não prova que futuras republicações manterão exatamente o mesmo layout, nem que o mecanismo é um stream de eventos em tempo real. O caminho Speed aqui é uma **diferença incremental calculada entre arquivos completos**, processada em execuções pontuais. Essa forma foi escolhida por ser compatível com a maneira como a SSP publica seus dados e por permitir uma demonstração auditável sem manter um serviço contínuo de streaming.
 
-O projeto separa **testes reproduzíveis com dados sintéticos** da **auditoria sobre dados reais no Databricks**.
+O Job está definido em um **Databricks Bundle independente**, para que a evolução do módulo SSP não modifique inadvertidamente os Jobs existentes do projeto. A agenda foi configurada com cron mensal, dia 10 às 10h no fuso `America/Sao_Paulo`, mas permanece **PAUSED**. Não há atualização automática da Gold oficial nem do Consumer V2 a partir dessa Serving.
 
-Ambos são necessários para demonstrar a qualidade técnica. Os testes locais, sozinhos, não comprovam a situação das tabelas reais.
+O módulo, seus testes e as regras de execução estão em [barrioiq_pipeline/atlas_sampa/ssp](barrioiq_pipeline/atlas_sampa/ssp/) e no documento [LAMBDA.md](barrioiq_pipeline/atlas_sampa/ssp/LAMBDA.md).
 
-### Testes do código (ambiente local)
+## 10. Governança, qualidade e observabilidade
 
-**Pré-requisitos:**
+A confiabilidade do projeto não depende apenas de executar transformações sem erro. Cada camada tem uma granularidade declarada e verificações próprias de cobertura, nulidade, duplicidade, formato, coordenadas e faixa de valores. Os testes interrompem o processamento quando encontram um contrato incompatível, em vez de converter silenciosamente um valor inesperado e produzir um resultado aparentemente válido.
 
-- Git.
-- Python 3.12.
-- Dependências do projeto.
-- Acesso ao repositório.
+O **versionamento Delta** e os **hashes SHA256** ajudam a identificar fotografias e mudanças de conteúdo. A documentação de colunas no Unity Catalog facilita a leitura dos indicadores por pessoas que não participaram da ingestão. Os contratos também distinguem valores absolutos, taxas por população, índices relativos e metadados técnicos. Essa distinção importa porque somar taxas como se fossem contagens, ou comparar um percentil diretamente com um número físico, comprometeria a análise.
 
-Para repetir a versão de código utilizada na auditoria de 05/11/2026:
+A observabilidade está presente em diferentes níveis. Os scripts emitem mensagens e eventos estruturados, os Jobs guardam histórico de execução, o GitHub Actions registra verificações e o schema `workspace.observability` armazena saídas de auditoria e os componentes da Lambda. Há ainda workflows de coleta de indicadores operacionais e evidências de entrega. **Esses mecanismos não constituem monitoramento contínuo de produção**, e as métricas DORA de produção não são anunciadas como mensuradas quando não existe uma operação de produção instrumentada.
+
+Na Lambda, a política de logs evita publicar identificadores de boletim de ocorrência, logradouros ou dados detalhados de registros. A aplicação web consome somente dados agregados por distrito, por uma identidade autorizada a ler o Consumer, sem credenciais pessoais fixadas no repositório. O bloqueio `publicacao_autorizada = false` é uma regra de produto e deve ser acompanhado das permissões reais do Unity Catalog, não tratado como substituto delas.
+
+A governança reconhece que trabalhar com dados públicos não elimina riscos de interpretação. Índices de ocorrências não antecipam vitimização individual, perfis não garantem condições de moradia e indicadores históricos não devem ser apresentados como observações atuais.
+
+## 11. CI/CD e infraestrutura como código
+
+O repositório utiliza **GitHub Actions** para validar scripts, SQL, contratos, modelos e configurações antes da integração à `main`. O **Databricks Asset Bundle** permite manter as definições dos Jobs próximas ao código, reduzindo diferenças entre aquilo que foi revisado no GitHub e o que será executado no workspace.
+
+A implantação do Bundle principal utiliza verificações antes de atualizar recursos existentes. O módulo Lambda possui **deploy manual próprio**, porque sua primeira publicação e as mudanças da SSP não devem ser disparadas pelo mesmo fluxo que distribui os demais componentes. O workflow manual de deploy não ativa o agendamento e não equivale a executar o processamento de dados.
+
+O Terraform declara os schemas `bronze`, `silver`, `gold` e `observability`, além do Volume Raw gerenciado. A definição declarativa facilita inspecionar dependências e reaplicar configurações de forma disciplinada. A automação atualmente presente no repositório valida `terraform fmt`, `terraform init -backend=false` e `terraform validate`. **A passagem do CI confirma validade de configuração, não comprova sozinha que cada recurso foi provisionado por um `terraform apply`.** A evidência do estado de infraestrutura deve ser consultada no ambiente do HCP Terraform quando necessária.
+
+As principais automações versionadas podem ser consultadas em [.github/workflows](.github/workflows/), e as declarações Terraform estão em [infra](infra/). O projeto não depende de publicações automáticas irrestritas para ser demonstrado; a separação entre CI, deploy e execução é uma medida deliberada de controle de custo e de risco sobre dados reais.
+
+## 12. Como reproduzir e validar
+
+Os testes offline verificam contratos e comportamento com dados sintéticos. Eles são rápidos e seguros para mudanças de código, mas não substituem a auditoria das tabelas reais no Databricks. A reprodução integral dos dados depende de acesso às fontes, Volumes, tabelas e permissões do ambiente utilizado.
+
+### 12.1. Testes de engenharia, ML e contratos
 
 ```bash
 git clone https://github.com/DCosso/bairroiq.git
-
 cd bairroiq
-
-git checkout b3aed9ad9ad47aacd5ee9261d58c3398a12acd80
-
 python -m pip install -r barrioiq_pipeline/requirements-ml.txt
-
-python -m unittest discover -s tests -p 'test_ml_catalogo_perfis_v3.py' -v
-
-python -m unittest discover -s tests -p 'test_star_schema_v1_delta_runner.py' -v
-
-python -m unittest discover -s tests -p 'test_frontend_v1_runner.py' -v
-
-python -m unittest discover -s tests -p 'test_frontend_v1_delta_runner.py' -v
+python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Esses testes verificam contratos, estruturas, comportamento e mecanismos de proteção utilizando dados sintéticos.
+Alguns testes especializados utilizam dependências adicionais, instaladas nos workflows correspondentes. Em caso de diferença de ambiente, os arquivos da pasta [.github/workflows](.github/workflows/) definem as dependências e versões usadas na verificação automatizada.
 
-A validação dos dados reais exige acesso ao Databricks.
+### 12.2. Aplicação em modo demonstrativo local
 
-### Revalidação da tabela real (Databricks, sem escrita)
-
-**Pré-requisitos:**
-
-- Acesso ao workspace Databricks.
-- Spark disponível.
-- Permissão de leitura nas tabelas Gold e Star Schema.
-- Databricks Asset Bundle implantado.
-
-Em um notebook Python, ajuste o caminho da pasta de arquivos do Bundle:
-
-```python
-from pathlib import Path
-import importlib.util
-
-# ============================================================
-# BAIRROIQ | CONSUMER V1 | REVALIDACAO READ-ONLY
-# ============================================================
-
-BUNDLE = Path(
-    "/Workspace/SEU_CAMINHO/.bundle/"
-    "barrioiq_pipeline/dev/files"
-)
-
-SCRIPT = BUNDLE / "frontend_v1_delta_runner.py"
-
-assert SCRIPT.is_file(), (
-    f"Runner ausente: {SCRIPT}"
-)
-
-spec = importlib.util.spec_from_file_location(
-    "bairroiq_frontend_check",
-    str(SCRIPT)
-)
-
-assert spec is not None and spec.loader is not None
-
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-
-# Auditoria sem escrita
-resultado = mod.check(spark)
-
-assert resultado["table_exists"] is True
-
-assert (
-    resultado["rows_in_snapshot"]
-    == resultado["expected_rows"]
-    == 96
-)
-
-assert resultado["action_if_applied"] == "KEEP_VERIFIED"
-
-assert resultado["snapshot_id"] == mod.SNAPSHOT_ID
-
-assert resultado["publicacao_autorizada"] is False
-
-assert resultado["will_write_on_check"] is False
-
-assert resultado["payload_sha256"] == (
-    "2c4ed6d0fd0b93edac079071a206c2ba94a6032c0a4bfabd989a049b54ee6a5f"
-)
-
-print("BAIRROIQ_FRONTEND_V1_VALIDADO")
+```powershell
+cd streamlit/bairroiq-streamlit-v2
+python -m pip install -r requirements-dev.txt
+$env:BAIRROIQ_DATA_PROVIDER = 'sample'
+python -m streamlit run app.py
 ```
 
-**Snapshot auditado:**
+O modo `sample` usa dados de demonstração, não substitui uma leitura homologada do Consumer V2 real. Para a experiência real, o [README do frontend](streamlit/bairroiq-streamlit-v2/README.md) documenta o Databricks Apps, o SQL Warehouse, as permissões necessárias e a regra de prévia restrita.
 
-`v3.0.0-candidato|726091fefefa868fd5d0d2c6929b1d68c4849941f4c7510b4fee0d93a075d38b`
+### 12.3. Conferência da Serving SSP
 
-**SHA256 do conteúdo físico:**
+```sql
+SELECT
+    p.ano,
+    COUNT(s.CD_DIST) AS linhas,
+    COUNT(DISTINCT s.CD_DIST) AS distritos,
+    COUNT(DISTINCT s.mes) AS meses,
+    COUNT(DISTINCT s.tipo) AS tipos,
+    SUM(s.quantidade) AS ocorrencias
+FROM workspace.observability.atlas_sampa_ssp_publication_v1 p
+JOIN workspace.observability.atlas_sampa_ssp_serving_v1 s
+  ON s.source_sha256 = p.source_sha256
+ AND s.ano = p.ano
+GROUP BY p.ano
+ORDER BY p.ano DESC;
+```
 
-`2c4ed6d0fd0b93edac079071a206c2ba94a6032c0a4bfabd989a049b54ee6a5f`
+A consulta lê a versão vigente apontada pelo controle de publicação, em vez de inferir a versão atual pelo maior hash ou pela última linha escrita. A reconciliação mais detalhada entre Batch, Speed e Serving consta das rotinas de homologação do módulo SSP.
 
-O `check(spark)` confronta o conteúdo com a fonte contratada e não grava dados.
-
-A execução manual de 05/11/2026 retornou:
+## 13. Estrutura do repositório e documentação
 
 ```text
-BAIRROIQ_FRONTEND_DELTA_V1_FULL_SNAPSHOT_VERIFIED
-BAIRROIQ_FRONTEND_V1_PHYSICAL_AUDIT_PASS
+bairroiq/
+|  README.md
+|  .github/workflows/                  GitHub Actions e validações
+|  infra/                              Terraform e configuração declarativa
+|  EDA/                                Análise exploratória inicial
+|  notebooks/                          Experimentos e exploração
+|  barrioiq_pipeline/                  Runners, SQL, testes e Bundles
+|     atlas_sampa/ssp/                 Coletor e arquitetura Lambda SSP
+|     resources/                       Definições de Jobs principais
+|     sql/                             Contratos e transformações SQL
+|  docs/
+|     arquitetura/                     Arquitetura e modelos lógicos
+|     consumo/                         Auditoria e contrato dos consumidores
+|     governanca/                      Regras semânticas e bloqueios
+|     ml/                              Experimentos e métricas
+|     modelagem/                       Modelo dimensional
+|     dicionario_gold_distritos_wide.md
+|     dicionario_gold_distritos_wide.json
+|  streamlit/bairroiq-streamlit-v2/    Aplicação Atlas Sampa e testes
+|  tests/                              Testes de engenharia e ML
 ```
 
-A reprodução completa **dos dados reais** exige acesso às fontes e tabelas do ambiente Databricks. Não é possível reconstruí-los exclusivamente com os testes sintéticos deste repositório.
+Documentos de referência:
 
----
+- [Dicionário de dados da Gold](docs/dicionario_gold_distritos_wide.md)
+- [Contrato de dados da Gold em JSON](docs/dicionario_gold_distritos_wide.json)
+- [Metodologia de Machine Learning e catálogo K9](docs/ml/metodologia_catalogo_perfis_v3.md)
+- [Comparação inicial de K-Means e Ward](docs/ml/metodologia_comparacao.md)
+- [Revisão semântica dos perfis](docs/governanca/encerramento_auditoria_semantica_v3.md)
+- [Contrato do Star Schema Delta](docs/modelagem/star_schema_v1_delta_contrato.md)
+- [Auditoria SQL do Consumer V2](docs/consumo/BairroIQ_Frontend_V2_Auditoria_Leitura.sql)
+- [Frontend e homologação privada](streamlit/bairroiq-streamlit-v2/README.md)
+- [Arquitetura Lambda SSP e controles](barrioiq_pipeline/atlas_sampa/ssp/LAMBDA.md)
 
-**BairroIQ — Transformando dados urbanos em inteligência territorial.**
+## 14. Responsabilidades técnicas e colaboração
+
+A execução do produto envolve competências complementares. **Engenharia de dados** estrutura a ingestão, transformação, versionamento e qualidade das fontes. **Analytics** define indicadores, unidades, interpretações e análises comparativas. **Ciência de dados** responde pela preparação das variáveis, experimentos, validação e interpretação dos clusters. **Desenvolvimento de produto e frontend** traduz esses resultados em interações, escolhas de critérios e visualizações compreensíveis. **DataOps e plataforma** mantêm testes, deploy, governança, custos e observabilidade.
+
+A divisão por responsabilidades não significa que cada função pertença obrigatoriamente a uma pessoa exclusiva. Os contratos entre componentes permitem colaboração e revisão cruzada. Isso foi especialmente importante para garantir que as regras de negócio continuassem consistentes entre a Gold, a modelagem dimensional, o Consumer V2 e a experiência Streamlit.
+
+## 15. Limitações e critérios de uso
+
+O produto foi **validado como MVP privado de exploração territorial**. Não oferece avaliações imobiliárias individuais, previsão de criminalidade, estimativa de tempo de deslocamento, garantia de acesso a serviços ou recomendação residencial homologada. A publicação privada da SSP e a fotografia utilizada no aplicativo pertencem a ciclos distintos, e novos resultados de uma fonte não são promovidos automaticamente para a Gold nem para a interface.
+
+Os nove perfis são hipóteses exploratórias de similaridade, sensíveis às variáveis, transformações e número de grupos escolhidos. A Silhouette relativamente baixa e a estabilidade moderada do K-Means K9 fazem parte do resultado científico, não são indicadores a esconder. Da mesma forma, a cobertura imobiliária de 39,72% e os períodos históricos de algumas fontes devem acompanhar qualquer interpretação dos dados.
+
+O encerramento técnico da primeira publicação Lambda foi registrado com reconciliação aprovada e sem ativação do cron. A disponibilização pública do Consumer e do Streamlit exigiria uma aprovação específica de governança e controle de acesso, que **não foi concedida nesta entrega**.
+
+O resultado é um sistema de dados reproduzível e demonstrável que mantém explícitas as escolhas metodológicas, os limites das fontes e o estado de autorização de cada componente.
