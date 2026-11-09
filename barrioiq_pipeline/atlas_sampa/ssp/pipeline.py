@@ -21,7 +21,12 @@ from zoneinfo import ZoneInfo
 
 # Databricks Bundle syncs this folder as a self-contained bundle. Provide the
 # package context that the already-versioned collector uses for relative imports.
-HERE = Path(__file__).resolve().parent
+
+try:
+    HERE = Path(__file__).resolve().parent
+except NameError:
+    HERE = Path(filename).resolve().parent
+
 if "atlas_sampa.ssp" not in sys.modules:
     parent = sys.modules.setdefault("atlas_sampa", types.ModuleType("atlas_sampa"))
     parent.__path__ = [str(HERE.parent)]
