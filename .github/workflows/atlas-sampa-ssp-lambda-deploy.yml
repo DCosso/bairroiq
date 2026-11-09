@@ -1,0 +1,56 @@
+name: Atlas Sampa - SSP Lambda Manual Deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-sampa-ssp-lambda-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-paused-job:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: databricks-dev
+    env:
+      DATABRICKS_HOST: ${{ vars.DATABRICKS_HOST }}
+      DATABRICKS_AUTH_TYPE: pat
+    steps:
+      - uses: actions/checkout@v4
+      - uses: databricks/setup-cli@main
+      - name: OAuth scoped token
+        env:
+          DATABRICKS_CLIENT_ID: ${{ vars.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, json, base64
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+          host=os.environ['DATABRICKS_HOST'].rstrip('/')
+          cid=os.environ['DATABRICKS_CLIENT_ID']
+          secret=os.environ['DATABRICKS_CLIENT_SECRET']
+          basic=base64.b64encode(f'{cid}:{secret}'.encode()).decode()
+          req=Request(host+'/oidc/v1/token',
+              data=urlencode({'grant_type':'client_credentials','scope':'jobs workspace'}).encode(),
+              headers={'Authorization':f'Basic {basic}', 'Content-Type':'application/x-www-form-urlencoded'},
+              method='POST')
+          with urlopen(req,timeout=30) as resp:
+              token=json.load(resp)['access_token']
+          print(f'::add-mask::{token}')
+          with open(os.environ['GITHUB_ENV'],'a',encoding='utf-8') as f:
+              f.write('DATABRICKS_TOKEN='+token+'\n')
+          PY
+      - name: Validate standalone bundle
+        working-directory: barrioiq_pipeline/atlas_sampa/ssp
+        run: databricks bundle validate --target dev
+      - name: Deploy ONLY standalone paused Lambda job
+        working-directory: barrioiq_pipeline/atlas_sampa/ssp
+        run: |
+          databricks bundle deploy --target dev --auto-approve
+          databricks bundle summary --target dev

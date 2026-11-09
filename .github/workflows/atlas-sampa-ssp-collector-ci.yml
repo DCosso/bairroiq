@@ -1,0 +1,33 @@
+name: Atlas Sampa - SSP Collector CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "barrioiq_pipeline/atlas_sampa/**"
+      - "tests/test_atlas_sampa_ssp_collector.py"
+      - ".github/workflows/atlas-sampa-ssp-collector-ci.yml"
+  push:
+    branches: [main, "feature/atlas-sampa-lambda-ssp"]
+    paths:
+      - "barrioiq_pipeline/atlas_sampa/**"
+      - "tests/test_atlas_sampa_ssp_collector.py"
+      - ".github/workflows/atlas-sampa-ssp-collector-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  collector-offline-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned dependency
+        run: python -m pip install -r barrioiq_pipeline/atlas_sampa/ssp/requirements.txt
+      - name: Compile collector
+        run: python -m compileall -q barrioiq_pipeline/atlas_sampa tests/test_atlas_sampa_ssp_collector.py
+      - name: Test with fixtures (no remote access)
+        run: python -m unittest discover -s tests -p 'test_atlas_sampa_ssp_collector.py' -v
