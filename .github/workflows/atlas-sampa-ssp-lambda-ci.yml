@@ -1,0 +1,51 @@
+name: Atlas Sampa - SSP Lambda CI
+
+on:
+  push:
+    branches: [main, 'feature/atlas-sampa-lambda-ssp']
+    paths:
+      - 'barrioiq_pipeline/atlas_sampa/ssp/**'
+      - 'tests/test_atlas_sampa_lambda.py'
+      - '.github/workflows/atlas-sampa-ssp-lambda-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'barrioiq_pipeline/atlas_sampa/ssp/**'
+      - 'tests/test_atlas_sampa_lambda.py'
+      - '.github/workflows/atlas-sampa-ssp-lambda-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lambda-offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Dependencies for offline fixtures
+        run: python -m pip install openpyxl==3.1.5 PyYAML==6.0.2
+      - name: Validate YAML contracts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          root = Path('barrioiq_pipeline/atlas_sampa/ssp')
+          config = yaml.safe_load((root / 'databricks.yml').read_text())
+          job = yaml.safe_load((root / 'resources/atlas-sampa-ssp-lambda.job.yml').read_text())['resources']['jobs']['atlas_sampa_ssp_lambda']
+          assert config['bundle']['name'] == 'atlas_sampa_ssp_lambda'
+          assert job['max_concurrent_runs'] == 1
+          assert job['schedule']['pause_status'] == 'PAUSED'
+          assert job['schedule']['quartz_cron_expression'] == '0 0 10 10 * ?'
+          assert job['schedule']['timezone_id'] == 'America/Sao_Paulo'
+          assert job['tasks'][0]['spark_python_task']['parameters'] == ['--run', '--bootstrap-legacy']
+          print('BUNDLE_SCHEDULE_GUARDED')
+          PY
+      - name: Syntax and offline tests
+        run: |
+          python -m compileall -q barrioiq_pipeline/atlas_sampa tests/test_atlas_sampa_lambda.py
+          python -m unittest discover -s tests -p 'test_atlas_sampa_lambda.py' -v
+          python -m unittest discover -s tests -p 'test_atlas_sampa_ssp_collector.py' -v
