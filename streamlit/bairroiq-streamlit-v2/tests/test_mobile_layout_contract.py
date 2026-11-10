@@ -15,7 +15,8 @@ class MobileLayoutContractTests(unittest.TestCase):
         self.assertIn("@media screen and (max-width: 850px)", css)
         self.assertIn("@media screen and (max-width: 480px)", css)
         # Todo estilo de apresentação deve permanecer nos media queries.
-        self.assertEqual(css.count("@media screen"), 2)
+         self.assertIn("@media screen and (max-width: 700px)", css)
+        self.assertEqual(css.count("@media screen"), 3)
 
     def test_mobile_targets_all_critical_components(self):
         css = CSS_PATH.read_text(encoding="utf-8")
