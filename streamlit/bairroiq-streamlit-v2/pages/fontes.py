@@ -1,4 +1,4 @@
-"""Explicações simples para quem deseja conhecer os distritos da cidade."""
+"""Explicacoes simples para quem deseja conhecer os distritos da cidade."""
 from __future__ import annotations
 
 import os
@@ -12,7 +12,9 @@ st.write(
     "os distritos de São Paulo e encontrar regiões que combinam com suas escolhas."
 )
 
-if os.getenv("BAIRROIQ_DATA_PROVIDER", "sample").strip().lower() != "databricks":
+# O modo public_snapshot disponibiliza dados reais, agregados e aprovados.
+# Somente o provider sample exibe dados ilustrativos.
+if os.getenv("BAIRROIQ_DATA_PROVIDER", "sample").strip().lower() == "sample":
     st.info("Você está vendo informações de demonstração, não resultados da cidade.")
 
 cards = st.columns(3, gap="medium")
