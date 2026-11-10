@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import streamlit as st
 
@@ -56,3 +57,12 @@ pages = [
 navigation = st.navigation(pages, position="hidden")
 st.session_state.setdefault("bairroiq-theme", "dark")
 navigation.run()
+
+# Aplica somente regras responsivas apos executar a pagina selecionada.
+# Isso mantem intactos os layouts desktop definidos no CSS atual.
+_mobile_css = Path(__file__).resolve().parent / "bairroiq" / "assets" / "mobile.css"
+if _mobile_css.is_file():
+    st.markdown(
+        "<style>" + _mobile_css.read_text(encoding="utf-8") + "</style>",
+        unsafe_allow_html=True,
+    )
