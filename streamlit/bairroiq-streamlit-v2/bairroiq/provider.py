@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from bairroiq.databricks import DatabricksConfig, DatabricksDataProvider
+from bairroiq.public_snapshot import PublicSnapshotProvider
 from bairroiq.sample_data import SampleDataProvider
 
 
@@ -19,7 +20,7 @@ class DataProvider(Protocol):
 
 
 class DataProviderFactory:
-    """Cria o adaptador de dados configurado para esta execução do app."""
+    """Preserva os modos privado e demonstrativo; adiciona o snapshot público."""
 
     @staticmethod
     def create(
@@ -31,17 +32,21 @@ class DataProviderFactory:
         ).strip().lower()
         if selected_provider == "sample":
             return SampleDataProvider()
+        if selected_provider == "public_snapshot":
+            return PublicSnapshotProvider()
         if selected_provider != "databricks":
             raise ValueError(
-                "BAIRROIQ_DATA_PROVIDER deve ser 'sample' ou 'databricks'."
+                "BAIRROIQ_DATA_PROVIDER deve ser 'sample', "
+                "'databricks' ou 'public_snapshot'."
             )
 
         if secrets is None:
-            secrets = (
-                st.secrets
-                if Path(".streamlit/secrets.toml").is_file()
-                else {}
-            )
+            # No Streamlit Community Cloud st.secrets existe mesmo sem arquivo
+            # local; no ambiente privado a conexão segue as regras atuais.
+            try:
+                secrets = dict(st.secrets)
+            except FileNotFoundError:
+                secrets = {}
         return DatabricksDataProvider(DatabricksConfig.from_sources(secrets))
 
 
