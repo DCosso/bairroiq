@@ -470,3 +470,101 @@
     min-width: 98px !important;
   }
 }
+
+
+/* Atlas Sampa: revisao de UX apos capturas reais de 10/11/2026.
+ * Seletor adicional aplicado depois das regras mobile anteriores.
+ * Sem efeitos sobre desktop, dados ou identidade do app.
+ */
+@media screen and (max-width: 700px) {
+  /* Cinco paginas sempre visiveis: 3 na primeira linha e 2 na segunda. */
+  .st-key-topbar .st-key-topbar-main > div > [data-testid="stHorizontalBlock"]
+  > [data-testid="stColumn"]:nth-child(2) {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+  }
+  .st-key-topbar .st-key-topbar-main > div > [data-testid="stHorizontalBlock"]
+  > [data-testid="stColumn"]:nth-child(2) [data-testid="stHorizontalBlock"] {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    grid-auto-flow: row !important;
+    gap: 7px !important;
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 3px 0 7px !important;
+  }
+  .st-key-topbar .st-key-topbar-main > div > [data-testid="stHorizontalBlock"]
+  > [data-testid="stColumn"]:nth-child(2) [data-testid="stHorizontalBlock"]
+  > [data-testid="stColumn"] {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    flex: 1 1 auto !important;
+  }
+  .st-key-topbar [class*="st-key-nav-"] {
+    min-height: 44px !important;
+    width: 100% !important;
+    padding: 0 !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 10px !important;
+  }
+  .st-key-topbar [class*="st-key-nav-"] a {
+    height: 100% !important;
+    min-height: 44px !important;
+    padding: 7px 5px !important;
+    border-radius: 9px !important;
+    width: 100% !important;
+  }
+  .st-key-topbar [class*="st-key-nav-"] a p,
+  .st-key-topbar [class*="st-key-nav-"] a {
+    font-size: 0.76rem !important;
+    line-height: 1.18 !important;
+    overflow-wrap: break-word !important;
+    white-space: normal !important;
+  }
+  /* Fonte de informacoes: cards grandes e empilhados em vez de 3 mini colunas. */
+  body:has(.st-key-source-card-observa)
+  [data-testid="stHorizontalBlock"]:has(.st-key-source-card-observa) {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    gap: 12px !important;
+  }
+  body:has(.st-key-source-card-observa)
+  [data-testid="stHorizontalBlock"]:has(.st-key-source-card-observa)
+  > [data-testid="stColumn"] {
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+  }
+  .st-key-source-card-observa,
+  .st-key-source-card-boundaries,
+  .st-key-source-card-scoring,
+  .st-key-source-card-observa [data-testid="stVerticalBlockBorderWrapper"],
+  .st-key-source-card-boundaries [data-testid="stVerticalBlockBorderWrapper"],
+  .st-key-source-card-scoring [data-testid="stVerticalBlockBorderWrapper"] {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    width: 100% !important;
+    overflow: visible !important;
+    box-sizing: border-box !important;
+  }
+  .st-key-source-card-observa h3,
+  .st-key-source-card-boundaries h3,
+  .st-key-source-card-scoring h3 { font-size: 1.12rem !important; }
+  .st-key-source-card-observa p,
+  .st-key-source-card-boundaries p,
+  .st-key-source-card-scoring p { line-height: 1.45 !important; }
+  /* Evita botoes/rodape tocarem na barra de navegacao do Android/iOS. */
+  [data-testid="stMainBlockContainer"] {
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .st-key-startup-actions { position: relative !important; padding-bottom: 12px !important; }
+  .st-key-startup-actions [data-testid="stButton"] button { min-height: 46px !important; }
+}
