@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import streamlit as st
 
 from bairroiq.ui import BRAND_LOGO_PATH
@@ -11,6 +13,12 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+provider = os.getenv("BAIRROIQ_DATA_PROVIDER", "sample").strip().lower()
+if provider == "sample":
+    st.warning(
+        "AMBIENTE DEMONSTRATIVO: os dados exibidos são fictícios e não "
+        "representam os indicadores reais dos 96 distritos de São Paulo."
+    )
 
 pages = [
     st.Page(

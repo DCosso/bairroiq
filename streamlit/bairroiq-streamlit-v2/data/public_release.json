@@ -1,0 +1,12 @@
+{
+  "aprovacao_explicita": true,
+  "aprovado_por": "Equipe responsavel pelo BairroIQ (autorizacao declarada pelo solicitante)",
+  "referencia_aprovacao": "Declaracao de autorizacao publica dos campos agregados pelo solicitante nesta conversa, 2026-11-10",
+  "aprovado_em_utc": "2026-11-10T17:06:45.073927+00:00",
+  "snapshot_id": "v3.0.0-candidato|726091fefefa868fd5d0d2c6929b1d68c4849941f4c7510b4fee0d93a075d38b",
+  "fonte_payload_sha256": "bdff96c020114f923356637b7881d7e4213687154fb18c6bd4fcf4433693ce01",
+  "arquivo_sha256": "26847434393f5fd2eb43174a112e288c0d043f321c3b75bbc079c636e72b9b93",
+  "gerado_em_utc": "2026-11-10T17:06:45.073927+00:00",
+  "linhas": 96,
+  "colunas": 15
+}
