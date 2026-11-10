@@ -25,56 +25,69 @@ Essa visualização contribui para compreender como os registros estão distribu
 
 <img width="1187" height="787" alt="image" src="https://github.com/user-attachments/assets/df349ec3-2acc-43aa-9d85-cd21801f3145" />
 
-# Base 2 — IBGE (Censo 2022)
+# Base 2 — Observa Sampa
 
-# Shape: 10,698 linhas x 28 colunas
+Shape: 206.198 linhas e 4 colunas.
 
-<img width="228" height="581" alt="image" src="https://github.com/user-attachments/assets/230af33d-8e15-4fa9-83c6-81cba81aca81" />
+Tipos de Dados: Nome (texto), Região (texto), Período (inteiro) e Resultado (texto).
 
-# Valores ausentes:
+Amostra das 5 primeiras linhas:
 
-<img width="227" height="321" alt="image" src="https://github.com/user-attachments/assets/97ead1d0-198e-4a44-90ee-c3266187fe32" />
+<img width="853" height="132" alt="image" src="https://github.com/user-attachments/assets/29eec9ac-aa74-43ca-8035-833b28c2714e" />
 
-# Cobertura geográfica:
+A base tem uma estrutura temporal longa para os distritos. Para a amostra visual, filtrei o indicador "Quantidade de famílias em situação de extrema pobreza" focando no distrito de Água Rasa. É possível observar o pico acentuado ocorrido ao redor de 2023.
 
-<img width="414" height="81" alt="image" src="https://github.com/user-attachments/assets/26bf712a-edff-4969-a872-4e5658fb0187" />
+<img width="1600" height="800" alt="image" src="https://github.com/user-attachments/assets/f73fdb72-9b75-4de0-b760-d29f1897df0f" />
 
-# Amostra (primeiras 5 linhas, colunas selecionadas):
 
-<img width="790" height="121" alt="image" src="https://github.com/user-attachments/assets/74cc2e26-97f1-4f1f-bab8-a40065704472" />
+# Base 3 — Guru dos imoveis
 
-# Base 3 — ObservaSampa (Dados Demograficos)
+Shape: 29.612 linhas e 9 colunas.
 
-A análise da base, permitiu observar a evolução da população de São Paulo ao longo do período disponivel analisado. Essa visualização contribui para compreender as mudanças no perfil demográfico da cidade e contextualizar os demais indicadores utilizados no BairroIQ.
+Tipos de Dados: mes, bairro e transacao (texto); mediana_m2, p25_m2, p75_m2 e dias_no_mercado_medio (decimal); anuncios_ativos_media_dia e novos_anuncios (inteiro).
 
-# Shape: 1,434 linhas x 4 colunas
+Amostra das 5 primeiras linhas:
 
-Colunas: ['Nome', 'Região', 'Período', 'Resultado']
+<img width="894" height="131" alt="image" src="https://github.com/user-attachments/assets/341ede1b-0703-40f5-8103-8a4dec13c20e" />
 
-<img width="134" height="101" alt="image" src="https://github.com/user-attachments/assets/f25c6741-7f02-486b-9855-b9ab2b558e7a" />
+Top Bairros por Preço (m²)
+Filtrando apenas as transações de "venda" na base do Guru dos Imóveis, o gráfico Top 10 bairros com a maior mediana do metro quadrado 
+(nota: os valores brutos mostram alguns recortes fora da curva como "Não Informado" ou bairros rurais isolados).
 
-# Valores ausentes:
+<img width="1600" height="800" alt="image" src="https://github.com/user-attachments/assets/27bc90d2-0dcb-4ba1-9311-73bffa98cc31" />
 
-Nenhum valor ausente
+# Base 4 — GeoSampa
 
-<img width="207" height="101" alt="image" src="https://github.com/user-attachments/assets/51567cda-8d94-4736-ab33-037c6517757a" />
+Shape: 96 linhas e 43 colunas.
 
-Top 10 indicadores por frequência:
-Nome
-01.01.01 Quantidade de famílias em situação de extrema pobreza (até 1/4 salário mínimo)                                     129
-11.01.03 Número de Unidades Habitacionais entregues (por meio de programas habitacionais e parcerias firmadas)              129
-11.01.08 Total de famílias beneficiárias de Auxílio Aluguel por ano                                                         129
-11.01.07 Número estimado de domicílios em favelas                                                                           129
-01.02.01 Quantidade de famílias em situação de pobreza (renda por pessoa de ⅛ até ¼ de salário-mínimo)                      129
-01.05.02 Número de famílias em atendimento habitacional provisório (Auxílio Aluguel) por situação de risco e emergência     129
-01.02.02 Quantidade de famílias em situação de baixa renda (renda por pessoa de ¼ até ½ salário mínimo)                     129
-01.05.03 Famílias em atendimento habitacional provisório por situação de risco e emergência (%)                             100
-16.0a.01 Número de câmeras inseridas no Projeto City Câmeras                                                                 33
-16.04.01 Número de armas recolhidas pela Campanha do Desarmamento pela Guarda Civil Metropolitana - GCM                      33
+Tipos de Dados: nm_distrit (texto); as outras 42 colunas são do tipo inteiro (contemplando a soma de equipamentos como bibliotecas, hospitais, escolas, praças, etc).
 
-# Amostra (primeiras 5 linhas):
-                                                                                      
-<img width="930" height="121" alt="image" src="https://github.com/user-attachments/assets/15bda79a-4b4a-481d-90bc-a16c70518082" />
+Amostra das 5 primeiras linhas (principais colunas):
+
+<img width="566" height="123" alt="image" src="https://github.com/user-attachments/assets/f4f73b98-9034-48f1-bca5-c3b965b9e58e" />
+
+Ranqueamos os 10 distritos paulistanos com a maior infraestrutura de educação pública. Grajaú e Jardim Ângela lideram o ranking de volume de escolas.
+
+<img width="1600" height="800" alt="image" src="https://github.com/user-attachments/assets/d23847f9-2358-444b-9323-4bc32de0bae4" />
+
+# Base 5 — IBGE
+
+Shape: 10.698 linhas e 28 colunas.
+
+Tipos de Dados: CD_DIST, CD_REGIAO, CD_UF, CD_MUN, CD_RGINT e CD_RGI (inteiro); AREA_KM2, v0001 até v0009 e nomenclaturas de regiões/municípios (texto).
+
+Amostra das 5 primeiras linhas (principais colunas):
+
+<img width="577" height="130" alt="image" src="https://github.com/user-attachments/assets/2cf6199c-aff6-431a-869d-23e2fa9e1dd4" />
+
+O dataset do IBGE abrange o Brasil inteiro. Porem como estamos focando na cidade de São Paulo O gráfico horizontal ilustra os 10 municipios com a maior quantidade de distritos mapeados. São Paulo e Mogi das Cruzes lideram o volume de zonas distritais.
+
+<img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/5a3c58e7-fb13-4def-b32b-a8d04fe17c35" />
+
+
+
+
+
 
 
 
