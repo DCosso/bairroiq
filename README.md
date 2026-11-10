@@ -12,6 +12,17 @@ A solução adota processamento sob demanda e publicação analítica controlada
 
 A disponibilização pública do aplicativo não está autorizada nesta versão, e o agendamento da Lambda permanece pausado.
 
+## Acesse o Atlas Sampa
+
+🌐 **[Abrir aplicativo interativo](https://atlas-sampa.streamlit.app/)**
+
+Explore os 96 distritos de São Paulo, personalize suas prioridades, compare regiões e conheça os nove perfis territoriais identificados por Machine Learning.
+
+O aplicativo é público, gratuito e funciona em computadores e celulares, sem necessidade de cadastro.
+
+A versão pública utiliza um snapshot estático, auditado e autorizado dos indicadores territoriais. A arquitetura de dados permanece no Databricks, com atualizações sob demanda.
+
+
 ## 1. Problema de negócio
 
 A escolha de uma região para morar, investir ou estabelecer atividades depende de fatores que dificilmente podem ser avaliados por um único indicador. Mobilidade, infraestrutura urbana, serviços públicos, densidade populacional, dinâmica imobiliária e ocorrências criminais representam dimensões distintas do território.
