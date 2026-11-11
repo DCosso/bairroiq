@@ -56,6 +56,12 @@ pages = [
 ]
 navigation = st.navigation(pages, position="hidden")
 st.session_state.setdefault("bairroiq-theme", "dark")
+# Os comparativos por zonas foram descontinuados.
+# Limpa sessões antigas antes de renderizar Explorar.
+st.session_state.pop("selected-zone", None)
+# Se o usuário limpou a busca sugerida, não retenha filtro anterior oculto.
+if "map-search-suggestion" in st.session_state and not st.session_state["map-search-suggestion"]:
+    st.session_state["map-search"] = ""
 navigation.run()
 
 # Aplica somente regras responsivas apos executar a pagina selecionada.
@@ -64,5 +70,13 @@ _mobile_css = Path(__file__).resolve().parent / "bairroiq" / "assets" / "mobile.
 if _mobile_css.is_file():
     st.markdown(
         "<style>" + _mobile_css.read_text(encoding="utf-8") + "</style>",
+        unsafe_allow_html=True,
+    )
+
+# Correcoes de legibilidade e responsividade desta versao.
+_ux_css = Path(__file__).resolve().parent / "bairroiq" / "assets" / "perfis_v3.css"
+if _ux_css.is_file():
+    st.markdown(
+        "<style>" + _ux_css.read_text(encoding="utf-8") + "</style>",
         unsafe_allow_html=True,
     )
