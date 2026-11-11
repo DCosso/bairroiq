@@ -83,7 +83,7 @@ class RankingUxTests(unittest.TestCase):
         source = (ROOT / "pages/iniciar.py").read_text(encoding="utf-8")
         ast.parse(source)
         self.assertIn("### Perfis de Distrito", source)
-        self.assertIn("top10_filtrado(filtered)", source)
+        self.assertNotIn('st.markdown("### Top 10 do cenário")', source)
         self.assertNotIn("Distritos por zona", source)
         self.assertNotIn("zone-card-", source)
 

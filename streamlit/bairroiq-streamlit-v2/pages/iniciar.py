@@ -11,7 +11,7 @@ import streamlit as st
 
 from bairroiq.map_data import DistrictMapService
 from bairroiq.provider import load_metrics
-from bairroiq.ranking_ux import ranking_filtrado, resumo_perfis, top10_filtrado
+from bairroiq.ranking_ux import ranking_filtrado, resumo_perfis
 from bairroiq.scoring import SCENARIO_SCORER
 from bairroiq.ui import SCENARIO_DEFAULTS, SCENARIO_LABELS, render_header
 from bairroiq.ux_labels import nome_perfil
@@ -44,10 +44,27 @@ def reset_scenario() -> None:
         st.session_state[f"start-priority-{key}"] = value
     st.session_state["personalize-objective-value"] = "Morar"
     st.session_state["home-profile-filter"] = "Todos os perfis"
+    st.session_state["home-profile-applied"] = "Todos os perfis"
     st.session_state["map-search"] = ""
     st.session_state["map-search-suggestion"] = None
     st.session_state["map-quick-filters"] = []
     st.session_state.pop("selected-zone", None)
+
+
+def sync_home_profile() -> None:
+    """Mantém o filtro de Perfil de Distrito na navegação subsequente."""
+    choice = st.session_state.get("home-profile-filter", "Todos os perfis")
+    old = st.session_state.get("home-profile-applied", "Todos os perfis")
+    if choice != "Todos os perfis":
+        st.session_state["map-search"] = choice
+        st.session_state["map-search-suggestion"] = choice
+    elif old != "Todos os perfis":
+        # Limpa somente a busca associada ao perfil anterior.
+        if st.session_state.get("map-search") == old:
+            st.session_state["map-search"] = ""
+        if st.session_state.get("map-search-suggestion") == old:
+            st.session_state["map-search-suggestion"] = None
+    st.session_state["home-profile-applied"] = choice
 
 
 def explore_profile(profile_name: str) -> None:
@@ -182,7 +199,10 @@ with panel_column:
 
 with map_column:
     with st.container(key="startup-map", border=True):
-        st.selectbox("Filtrar por Perfil de Distrito", options=profile_options, key="home-profile-filter")
+        st.selectbox(
+            "Filtrar por Perfil de Distrito", options=profile_options,
+            key="home-profile-filter", on_change=sync_home_profile,
+        )
         filtered = ranking_filtrado(
             preview,
             st.session_state.get("map-search", ""),
@@ -197,7 +217,10 @@ with map_column:
             fig = map_service.build_map(
                 mapped, theme=st.session_state.get("bairroiq-theme", "dark"), selectable=True,
             )
-            st.plotly_chart(fig, width="stretch", height=430, config={"displayModeBar": False})
+            # Altura expansível: o gráfico preenche a área reservada pelo CSS.
+            # Desktop e mobile utilizam limites independentes em ajustes_v4.css.
+            fig.update_layout(height=None, autosize=True)
+            st.plotly_chart(fig, width="stretch", height="stretch", config={"displayModeBar": False})
             if missing:
                 st.caption("Sem geometria no mapa: " + ", ".join(missing))
 
@@ -228,18 +251,3 @@ if not filtered.empty and "cluster" in filtered:
                         explore_profile(profile)
 elif "cluster" not in filtered:
     st.info("Os Perfis de Distrito estão disponíveis no conjunto territorial validado.")
-
-st.markdown("### Top 10 do cenário")
-st.caption("Ranking calculado após os filtros ativos e atualizado conforme suas prioridades.")
-if filtered.empty:
-    st.info("Nenhum distrito encontrado para os filtros ativos.")
-else:
-    top = top10_filtrado(filtered)
-    view = top[["neighborhood", "priority_score"]].rename(
-        columns={"neighborhood": "Distrito", "priority_score": "Aderência (0–100)"}
-    ).copy()
-    view.insert(0, "Posição", list(range(1, len(view) + 1)))
-    st.dataframe(
-        view, width="stretch", hide_index=True,
-        column_config={"Aderência (0–100)": st.column_config.NumberColumn(format="%.1f")},
-    )
