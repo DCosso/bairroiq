@@ -1,0 +1,59 @@
+/* Patch v3: carregado apos mobile.css para evitar textos/botoes cortados. */
+@media screen and (max-width: 850px) {
+  body:has(.st-key-startup-map) .st-key-startup-map {
+    height: auto !important;
+    min-height: 320px !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 6px !important;
+  }
+  body:has(.st-key-startup-map) .st-key-startup-map > div,
+  body:has(.st-key-startup-map) .st-key-startup-map [data-testid="stPlotlyChart"],
+  body:has(.st-key-startup-map) .st-key-startup-map .plot-container,
+  body:has(.st-key-startup-map) .st-key-startup-map .svg-container {
+    height: auto !important;
+    min-height: 300px !important;
+    max-height: none !important;
+  }
+  body:has(.st-key-startup-map) .st-key-startup-panel {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  body:has(.st-key-startup-map) .st-key-startup-panel [data-testid="stVerticalBlock"] {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  body:has(.st-key-comparison-map-card) .st-key-comparison-summary-panel,
+  body:has(.st-key-comparison-map-card) .st-key-comparison-ranking-card,
+  body:has(.st-key-comparison-map-card) .st-key-comparison-map-card,
+  body:has(.st-key-comparison-map-card) [class*="st-key-comparison-chart-"] {
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+  body:has(.st-key-comparison-map-card) [data-testid="stHorizontalBlock"]:has(.st-key-comparison-map-card) > [data-testid="stColumn"] {
+    min-width: 0 !important;
+    flex: 1 1 100% !important;
+    width: 100% !important;
+  }
+}
+body:has(.st-key-comparison-map-card) .stButton > button {
+  min-height: 44px !important;
+  background: #184977 !important;
+  border: 1px solid #417fac !important;
+  color: #fff !important;
+  opacity: 1 !important;
+  border-radius: 10px !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+}
+body:has(.st-key-comparison-map-card) .stButton > button * { color: #fff !important; }
+body:has(.st-key-comparison-map-card) [data-testid="stRadio"] label,
+body:has(.st-key-comparison-map-card) [data-testid="stRadio"] label * {
+  color: var(--ink) !important;
+  font-weight: 650 !important;
+  opacity: 1 !important;
+}

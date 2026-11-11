@@ -1,9 +1,7 @@
-"""Comparação territorial do BairroIQ / Atlas Sampa.
+"""Comparação de 1 a 10 distritos, com fallback Top 10 do cenário filtrado.
 
-Consumer V2: comparação transversal de distritos, mapas oficiais e perfis
-K-Means existentes. Não utiliza séries temporais fictícias nem reexecuta ML.
-O layout conserva a estrutura de cartões, mapa, ranking, radar e gráficos
-comparativos desenvolvida originalmente para o frontend Streamlit.
+Todos os gráficos utilizam os distritos elegíveis dos filtros ativos.
+Os Perfis de Distrito são metadados do Consumer, não são recalculados aqui.
 """
 from __future__ import annotations
 
@@ -22,14 +20,14 @@ from bairroiq.comparison_v2 import (
     selected_cluster_descriptions,
 )
 from bairroiq.map_data import DistrictMapService
-from bairroiq.ux_labels import nome_perfil
 from bairroiq.provider import load_metrics
+from bairroiq.ranking_ux import ranking_filtrado, selecionar_comparacao, top10_filtrado
 from bairroiq.scoring import SCENARIO_SCORER
 from bairroiq.ui import SCENARIO_DEFAULTS, render_header, theme_palette
+from bairroiq.ux_labels import nome_perfil
 
-
-_COLORS = ["#2d8a6e", "#356ae6", "#d96b43", "#8a58b5", "#c59b35"]
-# Compatibilidade visual com o modo de demonstração, nunca com o Consumer V2.
+_COLORS = ["#218f75", "#2d6ddd", "#db784c", "#9060c2", "#d39a37", "#3a879f",
+           "#cd5273", "#827bcd", "#879e37", "#c1794f"]
 _SAMPLE_INDICATORS = {
     "Empregos (demonstração)": "formal_jobs_score",
     "Segurança (demonstração)": "safety_score",
@@ -45,447 +43,382 @@ _SAMPLE_PRIORITIES = {
     "infrastructure": ("Infraestrutura e serviços", "lighting_led"),
 }
 
-district_map_service = DistrictMapService()
-
 
 def _sync_map_selection() -> None:
-    selected = list(st.session_state["comparison-neighborhoods-widget"][:5])
-    st.session_state["selected-neighborhoods"] = selected
-    st.session_state["comparison_neighborhoods"] = selected
+    chosen = list(st.session_state.get("comparison-neighborhoods-widget", []))[:10]
+    st.session_state["selected-neighborhoods"] = chosen
+    st.session_state["comparison_neighborhoods"] = chosen
 
 
-def _score_display(value: object) -> str:
-    if pd.isna(value):
-        return "indisponível"
-    return f"{float(value):.1f}"
+def _clear_comparison() -> None:
+    st.session_state["comparison-neighborhoods-widget"] = []
+    st.session_state["selected-neighborhoods"] = []
+    st.session_state["comparison_neighborhoods"] = []
+    st.session_state.pop("comparison-highlight-neighborhood", None)
 
 
-def _numeric_style(column: str) -> str:
-    return "{:.1f}" if column != "Aderência" else "{:.1f}"
+def _summary_card(title: str, value: object, detail: str = "") -> None:
+    st.markdown(
+        '<div class="comparison-stat">'
+        f'<div class="comparison-stat-label">{escape(str(title))}</div>'
+        f'<div class="comparison-stat-value">{escape(str(value))}</div>'
+        + (f'<div class="comparison-stat-detail">{escape(str(detail))}</div>' if detail else '')
+        + '</div>',
+        unsafe_allow_html=True,
+    )
 
 
 render_header("compare")
-st.markdown(
-    """
-    <style>
-    /* Mantém o desenho de três colunas da página original da Laís. */
-    body:has(.st-key-comparison-map) .st-key-comparison-summary-panel,
-    body:has(.st-key-comparison-map) .st-key-comparison-ranking-card,
-    body:has(.st-key-comparison-map) .st-key-comparison-map-card {
-        min-height: 620px; box-sizing: border-box;
-    }
-    body:has(.st-key-comparison-map)
-      .st-key-comparison-summary-panel [class*="st-key-comparison-summary-"] {
-        min-height: 110px; box-sizing: border-box; margin-bottom: 0.35rem;
-    }
-    body:has(.st-key-comparison-map)
-      .st-key-comparison-summary-2 [data-testid="stMetricValue"],
-    body:has(.st-key-comparison-map)
-      .st-key-comparison-summary-4 [data-testid="stMetricValue"] {
-        font-size: clamp(0.85rem, 1.1vw, 1.1rem) !important;
-        white-space: normal !important;
-    }
-    body:has(.st-key-comparison-map) .st-key-comparison-map-card
-      [data-testid="stPlotlyChart"] {
-        min-height: 500px;
-    }
-    body:has(.st-key-comparison-map) [class*="st-key-comparison-chart-"] {
-        min-height: 420px; box-sizing: border-box;
-    }
-    body:has(.st-key-comparison-map) .section-heading {
-        margin: 0.55rem 0 0.35rem !important;
-    }
-    body:has(.st-key-comparison-map) .duel-card {
-        padding: 0.55rem 0.75rem !important;
-        margin-bottom: 0.75rem !important;
-        min-height: 155px;
-    }
-    body:has(.st-key-comparison-map) .duel-card .duel-item {
-        margin-top: 0.25rem !important;
-    }
-    body:has(.st-key-comparison-map) [data-testid="stExpander"] summary {
-        border: 1px solid var(--line) !important;
-        border-radius: 8px !important;
-        background: var(--surface) !important;
-        color: var(--ink) !important;
-    }
-    @media (max-width: 900px) {
-        body:has(.st-key-comparison-map) .st-key-comparison-summary-panel,
-        body:has(.st-key-comparison-map) .st-key-comparison-ranking-card,
-        body:has(.st-key-comparison-map) .st-key-comparison-map-card,
-        body:has(.st-key-comparison-map) [class*="st-key-comparison-chart-"] {
-            min-height: 0 !important;
-            height: auto !important;
-        }
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown("""
+<style>
+/* Contraste e toque adequados em desktop e smartphone, só na comparação. */
+body:has(.st-key-comparison-map-card) .stButton > button {
+  background: #184977 !important; color: #fff !important;
+  border: 1px solid #417fac !important; border-radius: 10px !important;
+  min-height: 44px !important; padding: .58rem .9rem !important;
+  font-size: .97rem !important; font-weight: 750 !important;
+  opacity: 1 !important; box-shadow: none !important;
+}
+body:has(.st-key-comparison-map-card) .stButton > button p,
+body:has(.st-key-comparison-map-card) .stButton > button span { color: #fff !important; }
+body:has(.st-key-comparison-map-card) .stButton > button:hover {
+  background: #276caa !important; border-color: #91c4eb !important;
+}
+body:has(.st-key-comparison-map-card) [data-testid="stRadio"] [role="radiogroup"] label,
+body:has(.st-key-comparison-map-card) [data-testid="stRadio"] [role="radiogroup"] label p {
+  color: var(--ink) !important; opacity: 1 !important;
+  font-size: .95rem !important; font-weight: 600 !important;
+}
+body:has(.st-key-comparison-map-card) [data-testid="stMultiSelect"] [data-baseweb="tag"],
+body:has(.st-key-comparison-map-card) [data-testid="stMultiSelect"] [data-tag] {
+  background-color: #235c90 !important; color: #fff !important;
+  border: 1px solid #528bb9 !important; border-radius: 8px !important;
+}
+body:has(.st-key-comparison-map-card) [data-testid="stMultiSelect"] [data-baseweb="tag"] *,
+body:has(.st-key-comparison-map-card) [data-testid="stMultiSelect"] [data-tag] * { color: #fff !important; }
+body:has(.st-key-comparison-map-card) [data-testid="stExpander"] summary {
+  color: var(--ink) !important; font-weight: 700 !important;
+  background: var(--surface) !important;
+}
+body:has(.st-key-comparison-map-card) .comparison-stat {
+  padding: .9rem; min-height: 110px; margin-bottom: .6rem;
+  border: 1px solid var(--line); background: var(--surface);
+  border-radius: 12px; color: var(--ink); overflow-wrap: anywhere;
+}
+body:has(.st-key-comparison-map-card) .comparison-stat-label { font-size: .9rem; color: var(--muted); }
+body:has(.st-key-comparison-map-card) .comparison-stat-value {
+  font-size: clamp(1.08rem, 1.55vw, 1.48rem);
+  font-weight: 800; line-height: 1.35; color: var(--ink);
+}
+body:has(.st-key-comparison-map-card) .comparison-stat-detail {
+  font-size: .89rem; font-weight: 650; line-height: 1.35; color: var(--ink);
+  background: transparent !important; padding-top: .3rem;
+}
+body:has(.st-key-comparison-map-card) .comparison-district-card {
+  border: 1px solid var(--line); border-radius: 11px;
+  padding: .8rem; margin: .45rem 0; background: var(--surface);
+  color: var(--ink); min-height: 158px; overflow-wrap: anywhere;
+}
+body:has(.st-key-comparison-map-card) .comparison-district-card h4 {
+  font-size: 1.01rem; color: var(--ink); margin: 0 0 .4rem;
+}
+body:has(.st-key-comparison-map-card) .comparison-district-card .district-score {
+  font-size: 1.35rem; font-weight: 800; color: var(--ink);
+}
+body:has(.st-key-comparison-map-card) .comparison-district-card p {
+  font-size: .86rem; line-height: 1.35; margin: .26rem 0; color: var(--ink);
+}
+body:has(.st-key-comparison-map-card) .comparison-top-row {
+  display: flex; justify-content: space-between; gap: .7rem;
+  border-bottom: 1px solid var(--line); padding: .35rem 0;
+  font-size: .92rem; color: var(--ink);
+}
+body:has(.st-key-comparison-map-card) .comparison-top-row b { white-space: nowrap; }
+@media (max-width: 900px) {
+  body:has(.st-key-comparison-map-card) .comparison-stat { min-height: 0; }
+  body:has(.st-key-comparison-map-card) .comparison-district-card { min-height: 0; }
+  body:has(.st-key-comparison-map-card) [class*="st-key-comparison-chart-"] { min-height: 0 !important; height: auto !important; }
+  body:has(.st-key-comparison-map-card) .st-key-comparison-map-card { min-height: 0 !important; height: auto !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.title("Compare seus distritos")
-st.caption(
-    "Descubra como diferentes regiões combinam com aquilo que é importante para você."
-)
+st.caption("Compare entre 1 e 10 distritos. Sem seleção, exibimos os dez com maior aderência aos filtros atuais.")
 
-palette = theme_palette()
 metrics = load_metrics()
-all_neighborhoods = metrics["neighborhood"].astype(str).tolist()
-if len(all_neighborhoods) < 2:
-    st.info("São necessários ao menos dois distritos para uma comparação.")
+if metrics.empty:
+    st.info("Não há distritos disponíveis para comparar.")
     st.stop()
-
-if "comparison-neighborhoods-widget" not in st.session_state:
-    st.session_state["comparison-neighborhoods-widget"] = st.session_state.get(
-        "comparison_neighborhoods",
-        st.session_state.get("selected-neighborhoods", all_neighborhoods[:3]),
-    )
-# Valores herdados de outras telas podem conter mais de cinco distritos.
-st.session_state["comparison-neighborhoods-widget"] = [
-    name
-    for name in st.session_state["comparison-neighborhoods-widget"]
-    if name in all_neighborhoods
-][:5]
-
-selection_col, focus_col = st.columns([1.35, 1], gap="large")
-with selection_col:
-    selected = st.multiselect(
-        "Distritos da análise",
-        options=all_neighborhoods,
-        key="comparison-neighborhoods-widget",
-        max_selections=5,
-        on_change=_sync_map_selection,
-        placeholder="Selecione de dois a cinco distritos",
-    )
-with focus_col:
-    valid_focus_modes = ["Visão geral", "Empregos formais", "Estilos de região"]
-    if st.session_state.get("comparison-focus-mode") not in (*valid_focus_modes, None):
-        st.session_state["comparison-focus-mode"] = "Visão geral"
-    focus_mode = st.radio(
-        "Foco da análise",
-        options=valid_focus_modes,
-        horizontal=True,
-        key="comparison-focus-mode",
-    )
-
-if len(selected) < 2:
-    st.info("Selecione pelo menos dois distritos para visualizar a comparação completa.")
-    st.stop()
-
 for key, default in SCENARIO_DEFAULTS.items():
     st.session_state.setdefault(f"scenario-value-{key}", default)
-weights = {
-    key: int(st.session_state[f"scenario-value-{key}"])
-    for key in SCENARIO_DEFAULTS
-}
+weights = {key: int(st.session_state[f"scenario-value-{key}"]) for key in SCENARIO_DEFAULTS}
 score_weights = weights if sum(weights.values()) else SCENARIO_DEFAULTS
 scored = SCENARIO_SCORER.score_neighborhoods(metrics, score_weights)
 real_v2 = is_real_v2(scored)
-comparison = scored[scored["neighborhood"].isin(selected)].copy()
-comparison = comparison.sort_values("priority_score", ascending=False, kind="stable")
+palette = theme_palette()
+district_map_service = DistrictMapService()
+st.session_state.pop("selected-zone", None)  # Filtro de zona descontinuado.
+
+# Busca e interesses do cabeçalho também restringem o Top 10 desta página.
+eligible = ranking_filtrado(
+    scored,
+    busca=st.session_state.get("map-search", ""),
+    filtros=st.session_state.get("map-quick-filters", []),
+)
+if eligible.empty:
+    st.info("Nenhum distrito atende aos filtros selecionados. Volte à tela Explorar e revise a busca ou os interesses.")
+    st.stop()
+
+options = eligible["neighborhood"].astype(str).tolist()
+if "comparison-neighborhoods-widget" not in st.session_state:
+    st.session_state["comparison-neighborhoods-widget"] = list(
+        st.session_state.get("comparison_neighborhoods", st.session_state.get("selected-neighborhoods", []))
+    )
+# Streamlit exige limpar valores obsoletos antes de instanciar o widget.
+st.session_state["comparison-neighborhoods-widget"] = [
+    name for name in dict.fromkeys(st.session_state["comparison-neighborhoods-widget"])
+    if name in options
+][:10]
+
+selection_col, focus_col = st.columns([1.4, 1], gap="large")
+with selection_col:
+    chosen = st.multiselect(
+        "Distritos da análise", options=options, key="comparison-neighborhoods-widget",
+        max_selections=10, on_change=_sync_map_selection,
+        placeholder="Selecione até 10 distritos (vazio = Top 10)",
+    )
+with focus_col:
+    valid_focus_modes = ["Visão geral", "Empregos formais", "Perfis de Distrito"]
+    if st.session_state.get("comparison-focus-mode") not in (*valid_focus_modes, None):
+        st.session_state["comparison-focus-mode"] = "Visão geral"
+    focus_mode = st.radio(
+        "Foco da análise", options=valid_focus_modes, horizontal=True,
+        key="comparison-focus-mode",
+    )
+
+comparison, automatic_top10 = selecionar_comparacao(eligible, chosen)
+selected = comparison["neighborhood"].astype(str).tolist()
+if comparison.empty:
+    st.info("Não há distritos elegíveis para a comparação atual.")
+    st.stop()
+if automatic_top10:
+    st.info(f"Nenhum distrito selecionado. Exibindo o Top {len(comparison)} do cenário filtrado.")
+else:
+    st.caption(f"Comparando {len(comparison)} distrito(s) selecionado(s).")
+st.button("Limpar seleção e mostrar Top 10", key="comparison-clear-selection", on_click=_clear_comparison)
 
 if real_v2:
     metric_options = dict(V2_INDICATORS)
     priority_options = dict(V2_WEIGHT_DIMENSIONS)
+    # Valida a identidade original dos nove perfis a partir de dados completos.
     cluster_summary = build_cluster_comparison(scored, selected)
-    radar_dimensions = metric_options
-    if focus_mode == "Empregos formais":
-        dimensions = {"Empregos formais": "formal_jobs_score"}
-    else:
-        dimensions = metric_options
-    st.caption(
-        "O resultado leva em conta suas preferências de verde e lazer, segurança, "
-        "mobilidade e serviços públicos. Outros detalhes ajudam a conhecer cada região."
+    # Dados exibidos no gráfico também devem respeitar busca e interesses.
+    stats = eligible.groupby(["cluster", "perfil_id"], as_index=False).agg(
+        distritos_no_perfil=("neighborhood", "nunique"),
+        aderencia_media=("priority_score", "mean"),
     )
+    cluster_summary = (
+        cluster_summary.drop(columns=["distritos_no_perfil", "aderencia_media"])
+        .merge(stats, on=["cluster", "perfil_id"], how="inner")
+        .sort_values("codigo", kind="stable")
+    )
+    st.caption("Aderência às suas prioridades de verde e lazer, segurança, mobilidade e serviços públicos.")
 else:
-    # O modo sample permanece identificado; seus dados nunca são apresentados
-    # como K-Means, indicadores oficiais ou histórico factual.
-    metric_options = {
-        label: field for label, field in _SAMPLE_INDICATORS.items()
-        if field in scored.columns
-    }
+    metric_options = {label: column for label, column in _SAMPLE_INDICATORS.items()
+                      if column in comparison.columns}
     priority_options = _SAMPLE_PRIORITIES
-    dimensions = (
-        {"Empregos (demonstração)": "formal_jobs_score"}
-        if focus_mode == "Empregos formais" else metric_options
-    )
     cluster_summary = None
-    radar_dimensions = metric_options
     st.warning("Você está conhecendo uma versão de demonstração.")
+
+if focus_mode == "Empregos formais":
+    dimensions = {"Empregos formais": "formal_jobs_score"}
+else:
+    dimensions = metric_options
+radar_dimensions = metric_options
 
 leader = comparison.iloc[0]
 average_score = float(comparison["priority_score"].mean())
-active_dimensions = [
-    (key, label, column)
-    for key, (label, column) in priority_options.items()
-    if float(weights.get(key, 0)) > 0
-    and column in comparison.columns
-    and pd.to_numeric(comparison[column], errors="coerce").notna().any()
+active = [
+    (key, label, col)
+    for key, (label, col) in priority_options.items()
+    if weights.get(key, 0) > 0 and col in comparison.columns
+    and pd.to_numeric(comparison[col], errors="coerce").notna().any()
 ]
-active_priority = max(
-    ((key, weights[key]) for key, _label, _column in active_dimensions),
-    key=lambda item: item[1], default=None,
-)
-priority_labels = {key: label for key, (label, _col) in priority_options.items()}
+priority = max(active, key=lambda x: weights[x[0]], default=None)
 
-st.markdown('<div class="section-heading">Diferenciais do duelo</div>', unsafe_allow_html=True)
-duel_columns = st.columns(min(3, len(comparison)), gap="small")
-for position, (_, row) in enumerate(comparison.iterrows(), start=1):
-    observed = [
-        (label, column, float(row[column]))
-        for label, column in metric_options.items()
-        if column in row and pd.notna(row[column])
-    ]
-    strongest = sorted(observed, key=lambda item: item[2], reverse=True)[:2]
-    valid_priorities = [
-        (key, label, column) for key, label, column in active_dimensions
-        if pd.notna(row[column])
-    ]
-    weakest = (
-        min(valid_priorities, key=lambda item: float(row[item[2]]))
-        if valid_priorities else None
-    )
-    highlights = " · ".join(
-        f"{escape(label)} {value:.1f}" for label, _column, value in strongest
-    ) or "Dados insuficientes"
-    if weakest:
-        insight = (
-            f'<div class="duel-item"><strong>Prioridade principal:</strong> '
-            f'{escape(priority_labels[active_priority[0]])} '
-            f'(peso {active_priority[1]})</div>'
-            f'<div class="duel-item duel-opportunity"><strong>Menor índice entre suas '
-            f'prioridades:</strong> {escape(weakest[1])} '
-            f'({_score_display(row[weakest[2]])}/100)</div>'
+st.markdown("### Destaques dos distritos")
+for offset in range(0, len(comparison), 3):
+    cols = st.columns(3, gap="medium")
+    for column, (_, row) in zip(cols, comparison.iloc[offset:offset + 3].iterrows()):
+        name = escape(str(row["neighborhood"]))
+        score = float(row["priority_score"])
+        valid = [(title, float(row[field])) for title, field in metric_options.items()
+                 if field in row and pd.notna(row[field])]
+        strengths = sorted(valid, key=lambda pair: pair[1], reverse=True)[:2]
+        strengths_copy = ", ".join(f"{escape(label)} ({value:.0f})" for label, value in strengths)
+        profile_copy = (
+            f'<p><b>Perfil de Distrito:</b> {escape(nome_perfil(row["cluster"]))}</p>'
+            if real_v2 else ""
         )
-    else:
-        insight = '<div class="duel-item">Nenhuma prioridade ativa.</div>'
-    profile_html = (
-        f'<div class="duel-item"><strong>Estilo da região:</strong> '
-        f'{escape(nome_perfil(row["cluster"]))}</div>'
-        if real_v2 else ""
-    )
-    card_html = (
-        '<div class="duel-card">'
-        f'<h4>#{position} {escape(str(row["neighborhood"]))}</h4>'
-        f'<div class="duel-score">{float(row["priority_score"]):.1f}/100</div>'
-        '<div class="duel-label">Aderência ao cenário</div>'
-        f'<div class="duel-item"><strong>Destaques:</strong> {highlights}</div>'
-        f'{profile_html}{insight}</div>'
-    )
-    with duel_columns[(position - 1) % len(duel_columns)]:
-        st.markdown(card_html, unsafe_allow_html=True)
+        with column:
+            st.markdown(
+                '<div class="comparison-district-card">'
+                f'<h4>{name}</h4>'
+                f'<div class="district-score">{score:.1f}/100</div>'
+                '<p>Aderência ao cenário</p>'
+                f'<p><b>Destaques:</b> {strengths_copy or "Sem dados disponíveis"}</p>'
+                f'{profile_copy}</div>',
+                unsafe_allow_html=True,
+            )
 
-summary_metrics = (
-    ("Distritos analisados", len(comparison), None),
-    ("Líder do cenário", str(leader["neighborhood"]), f'{leader["priority_score"]:.1f}/100'),
-    ("Média de aderência", f"{average_score:.1f}/100", None),
-    (
-        "Prioridade principal",
-        priority_labels[active_priority[0]] if active_priority else "Nenhuma",
-        f"Peso {active_priority[1]}" if active_priority else None,
-    ),
+st.markdown("### Resumo da análise")
+summary_col, map_col, top_col = st.columns([0.9, 1.65, 1.0], gap="medium")
+with summary_col:
+    with st.container(key="comparison-summary-panel", border=True):
+        _summary_card("Distritos analisados", len(comparison))
+        _summary_card("Líder do cenário", str(leader["neighborhood"]),
+                      f'{float(leader["priority_score"]):.1f}/100')
+        _summary_card("Média de aderência", f"{average_score:.1f}/100")
+        _summary_card("Prioridade principal", priority[1] if priority else "Nenhuma",
+                      f"Peso {weights[priority[0]]}" if priority else "")
+with map_col:
+    with st.container(key="comparison-map-card", border=True):
+        st.markdown("#### Mapa dos distritos comparados")
+        mapped, missing = district_map_service.restrict_to_mapped_districts(comparison)
+        fig = district_map_service.build_map(
+            mapped, theme=st.session_state.get("bairroiq-theme", "dark")
+        )
+        st.plotly_chart(fig, key="comparison-map", width="stretch", height=460,
+                        config={"displayModeBar": False, "scrollZoom": True})
+        if missing:
+            st.caption("Sem limites no mapa: " + ", ".join(missing))
+with top_col:
+    with st.container(key="comparison-ranking-card", border=True):
+        st.markdown("#### Top 10 do cenário")
+        st.caption("Após busca, filtros de interesse e prioridades")
+        for index, row in enumerate(top10_filtrado(eligible).to_dict("records"), start=1):
+            st.markdown(
+                '<div class="comparison-top-row">'
+                f'<span>#{index} {escape(str(row["neighborhood"]))}</span>'
+                f'<b>{float(row["priority_score"]):.1f}</b>'
+                '</div>', unsafe_allow_html=True,
+            )
+
+st.markdown("### Resumo por indicador")
+cols = ["neighborhood", *dimensions.values(), "priority_score"]
+table = comparison.loc[:, cols].copy()
+table.columns = ["Distrito", *dimensions.keys(), "Aderência"]
+st.dataframe(
+    table, hide_index=True, width="stretch",
+    column_config={col: st.column_config.NumberColumn(format="%.1f") for col in table.columns if col != "Distrito"},
 )
-st.markdown('<div class="section-heading">Resumo por indicador</div>', unsafe_allow_html=True)
-table_columns = ["neighborhood", *dimensions.values(), "priority_score"]
-table_data = comparison[table_columns].copy()
-table_data.columns = ["Distrito", *dimensions.keys(), "Aderência"]
-table_palette = theme_palette()
-light_theme = st.session_state.get("bairroiq-theme", "dark") == "light"
-table_background = "#ffffff" if light_theme else table_palette["paper"]
-table_line = "#000000" if light_theme else table_palette["line"]
-styled_table = (
-    table_data.sort_values("Aderência", ascending=False)
-    .style.format({name: _numeric_style(name) for name in [*dimensions.keys(), "Aderência"]})
-    .set_table_styles([
-        {"selector": "table", "props": [
-            ("width", "100%"), ("border-collapse", "collapse"),
-            ("border", f"1px solid {table_line}"),
-            ("background-color", table_background), ("color", table_palette["ink"]),
-        ]},
-        {"selector": "th, td", "props": [
-            ("border", f"1px solid {table_line}"),
-            ("background-color", table_background), ("color", table_palette["ink"]),
-            ("padding", "0.5rem"),
-        ]},
-    ])
-)
-st.table(styled_table, width="stretch", hide_index=True)
 
 if real_v2:
     with st.expander("Mais detalhes sobre os distritos", expanded=False):
-        descriptive = comparison[[
-            "neighborhood", "cluster", "densidade_hab_km2",
-            "robberies_per_1000",
-        ]].rename(columns={
-            "neighborhood": "Distrito", "cluster": "Perfil territorial",
-            "densidade_hab_km2": "Habitantes por km²",
-            "robberies_per_1000": "Roubos por 1.000 habitantes",
-        })
-        descriptive["Perfil territorial"] = descriptive["Perfil territorial"].map(nome_perfil)
-        st.dataframe(
-            descriptive,
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                "Habitantes por km²": st.column_config.NumberColumn(format="%.0f"),
-                "Roubos por 1.000 habitantes": st.column_config.NumberColumn(format="%.2f"),
-            },
-        )
+        descriptive = comparison[["neighborhood", "cluster", "densidade_hab_km2", "robberies_per_1000"]].copy()
+        descriptive.columns = ["Distrito", "Perfil de Distrito", "Densidade (hab./km²)", "Roubos por 1.000 hab."]
+        descriptive["Perfil de Distrito"] = descriptive["Perfil de Distrito"].map(nome_perfil)
+        st.dataframe(descriptive, hide_index=True, width="stretch")
 
-# Uma comparação deve sempre mostrar todos os distritos selecionados,
-# mesmo que existam filtros antigos guardados na página Explorar.
-visible = district_map_service.filter_districts(scored, selected, "", [])
-map_visible, missing_map_boundaries = district_map_service.restrict_to_mapped_districts(visible)
-summary_column, map_column, ranking_column = st.columns([0.9, 1.55, 0.9], gap="medium")
-with summary_column:
-    with st.container(key="comparison-summary-panel", border=True):
-        st.markdown('<div class="section-heading">Resumo da análise</div>', unsafe_allow_html=True)
-        for index, (label, value, detail) in enumerate(summary_metrics, start=1):
-            with st.container(key=f"comparison-summary-{index}", border=True):
-                st.metric(label, value, detail)
-with map_column:
-    with st.container(key="comparison-map-card", border=True):
-        st.markdown('<div class="section-heading">Mapa por pontuação</div>', unsafe_allow_html=True)
-        figure = district_map_service.build_map(
-            map_visible, theme=st.session_state.get("bairroiq-theme", "light")
-        )
-        st.plotly_chart(
-            figure, key="comparison-map", width="stretch", height=500,
-            config={"displayModeBar": False, "scrollZoom": True},
-        )
-        if missing_map_boundaries:
-            st.caption("Sem limites cadastrados para: " + ", ".join(missing_map_boundaries))
-        if "illustrative_boundary" in visible and visible["illustrative_boundary"].any():
-            st.caption("Os limites de distritos demonstrativos são ilustrativos.")
-with ranking_column:
-    with st.container(key="comparison-ranking-card", border=True):
-        st.markdown('<div class="section-heading">Top 10 do cenário</div>', unsafe_allow_html=True)
-        st.caption("Distritos com maior aderência às quatro prioridades")
-        for position, row in enumerate(scored.head(10).to_dict("records"), start=1):
-            st.markdown(
-                f'<div class="ranking-row"><span>#{position} '
-                f'{escape(str(row["neighborhood"]))}</span><strong>'
-                f'{row["priority_score"]:.1f}</strong></div>',
-                unsafe_allow_html=True,
-            )
-        st.caption("Aderência personalizada, de 0 a 100")
-
-chart_data = comparison.melt(
-    id_vars="neighborhood", value_vars=list(dimensions.values()),
-    var_name="metric", value_name="score",
-)
-metric_labels = {field: name for name, field in dimensions.items()}
-chart_data["metric"] = chart_data["metric"].map(metric_labels)
-
-with st.expander("Explore os gráficos: indicadores, comparações e estilos de região", expanded=False):
-    highlighted = st.selectbox(
-        "Destacar distrito nos gráficos", options=["Nenhum", *selected],
+with st.expander("Gráficos: indicadores, comparações e Perfis de Distrito", expanded=False):
+    st.session_state.setdefault("comparison-highlight-neighborhood", "Nenhum")
+    highlight_options = ["Nenhum", *selected]
+    if st.session_state["comparison-highlight-neighborhood"] not in highlight_options:
+        st.session_state["comparison-highlight-neighborhood"] = "Nenhum"
+    highlight = st.selectbox(
+        "Destacar distrito nos gráficos", options=highlight_options,
         key="comparison-highlight-neighborhood",
     )
-    has_highlight = highlighted != "Nenhum"
-    bar_column, radar_column, cluster_column = st.columns(3, gap="small")
-
-    with bar_column:
+    bar_col, radar_col, profile_col = st.columns(3, gap="medium")
+    with bar_col:
         with st.container(key="comparison-chart-indicators", border=True):
-            st.markdown("#### Indicadores dos distritos")
-            bars = px.bar(
-                chart_data, x="metric", y="score", color="neighborhood",
-                barmode="group", color_discrete_sequence=_COLORS,
-                labels={"metric": "Indicador", "score": "Índice (0–100)", "neighborhood": "Distrito"},
-            )
-            bars.update_layout(
-                height=340, margin={"r": 12, "t": 12, "l": 8, "b": 82},
-                paper_bgcolor=palette["surface"], plot_bgcolor=palette["surface"],
-                font={"color": palette["ink"], "size": 11},
-                xaxis={"tickangle": -25, "automargin": True},
-                yaxis={"range": [0, 100], "gridcolor": palette["line"]},
-                legend={"orientation": "h", "y": -0.36, "font": {"size": 11}},
-            )
-            if has_highlight:
-                for trace in bars.data:
-                    trace.marker.opacity = 1 if trace.name == highlighted else 0.18
-            st.plotly_chart(bars, width="stretch", config={"displayModeBar": False})
-
-    with radar_column:
+            st.markdown("#### Indicadores")
+            if dimensions:
+                melted = comparison.melt(
+                    id_vars="neighborhood", value_vars=list(dimensions.values()),
+                    var_name="indicator", value_name="score",
+                )
+                label_map = {v: k for k, v in dimensions.items()}
+                melted["indicator"] = melted["indicator"].map(label_map)
+                chart = px.bar(
+                    melted, x="indicator", y="score", color="neighborhood",
+                    barmode="group", color_discrete_sequence=_COLORS,
+                    labels={"indicator": "Indicador", "score": "Índice (0–100)",
+                            "neighborhood": "Distrito"},
+                )
+                chart.update_layout(
+                    height=410, margin={"l": 16, "r": 16, "t": 12, "b": 105},
+                    paper_bgcolor=palette["surface"], plot_bgcolor=palette["surface"],
+                    font={"color": palette["ink"], "size": 11},
+                    xaxis={"tickangle": -30, "automargin": True},
+                    yaxis={"range": [0, 100], "gridcolor": palette["line"]},
+                    legend={"orientation": "h", "y": -0.45, "font": {"size": 10}},
+                )
+                if highlight != "Nenhum":
+                    for trace in chart.data:
+                        trace.marker.opacity = 1 if trace.name == highlight else 0.18
+                st.plotly_chart(chart, width="stretch", config={"displayModeBar": False})
+            else:
+                st.info("Sem indicadores disponíveis.")
+    with radar_col:
         with st.container(key="comparison-chart-profile", border=True):
             st.markdown("#### Perfil por dimensão")
             radar = go.Figure()
             for _, row in comparison.iterrows():
-                is_focus = not has_highlight or row["neighborhood"] == highlighted
+                focus = highlight == "Nenhum" or str(row["neighborhood"]) == highlight
                 radar.add_trace(go.Scatterpolar(
-                    r=[row[field] for field in radar_dimensions.values()],
-                    theta=list(radar_dimensions), fill="toself",
+                    r=[float(row[field]) for field in radar_dimensions.values()],
+                    theta=list(radar_dimensions.keys()), fill="toself",
                     name=str(row["neighborhood"]),
-                    opacity=0.58 if not has_highlight else (0.85 if is_focus else 0.12),
-                    line={"width": 4 if has_highlight and is_focus else 2},
+                    opacity=0.5 if highlight == "Nenhum" else (0.85 if focus else 0.12),
+                    line={"width": 3 if focus and highlight != "Nenhum" else 1.7},
                 ))
             radar.update_layout(
-                polar={
-                    "radialaxis": {"visible": True, "range": [0, 100],
-                                   "gridcolor": palette["line"]},
-                    "angularaxis": {"gridcolor": palette["line"]},
-                    "bgcolor": palette["surface"],
-                },
-                height=340, margin={"r": 35, "t": 20, "l": 35, "b": 60},
-                paper_bgcolor=palette["surface"], plot_bgcolor=palette["surface"],
-                font={"color": palette["ink"], "size": 11}, colorway=_COLORS,
-                legend={"orientation": "h", "y": -0.2, "font": {"size": 11}},
+                polar={"radialaxis": {"visible": True, "range": [0, 100], "gridcolor": palette["line"]},
+                       "angularaxis": {"gridcolor": palette["line"]}, "bgcolor": palette["surface"]},
+                height=410, margin={"l": 35, "r": 35, "t": 12, "b": 95},
+                paper_bgcolor=palette["surface"], font={"color": palette["ink"], "size": 11},
+                colorway=_COLORS,
+                legend={"orientation": "h", "y": -0.25, "font": {"size": 10}},
             )
             st.plotly_chart(radar, width="stretch", config={"displayModeBar": False})
-
-    with cluster_column:
+    with profile_col:
         with st.container(key="comparison-chart-cluster", border=True):
-            st.markdown("#### Estilos de região")
-            if not real_v2 or cluster_summary is None:
-                st.info("Os estilos de região estarão disponíveis quando as informações forem carregadas.")
+            st.markdown("#### Perfis de Distrito")
+            if not real_v2 or cluster_summary is None or cluster_summary.empty:
+                st.info("Perfis disponíveis apenas para o conjunto territorial validado.")
             else:
-                # Códigos internos mantidos apenas como chave categórica, nunca como rótulo.
                 nomes_perfis = cluster_summary["cluster"].map(nome_perfil).tolist()
-                clusters_plot = px.bar(
-                    cluster_summary,
-                    x="codigo", y="aderencia_media", color="destaque",
+                chart = px.bar(
+                    cluster_summary, x="codigo", y="aderencia_media", color="destaque",
                     category_orders={"codigo": cluster_summary["codigo"].tolist()},
                     color_discrete_map={
-                        "Com distrito selecionado": "#2d8a6e",
+                        "Com distrito selecionado": "#218f75",
                         "Outros perfis": "#8b96a7",
                     },
                     custom_data=["cluster", "distritos_no_perfil"],
-                    labels={"codigo": "Estilo de região", "aderencia_media": "Combina com suas escolhas (0–100)",
-                            "destaque": "Seleção"},
+                    labels={"codigo": "Perfil de Distrito", "aderencia_media": "Aderência média (0–100)"},
                 )
-                clusters_plot.update_traces(
+                chart.update_traces(
                     customdata=cluster_summary[["distritos_no_perfil"]].to_numpy(),
-                    hovertemplate=(
-                        "Distritos no perfil: %{customdata[0]}<br>"
-                        "Combina com suas escolhas: %{y:.1f}/100"
-                        "<extra></extra>"
-                    ),
+                    hovertemplate="Distritos elegíveis no perfil: %{customdata[0]}<br>Aderência média: %{y:.1f}/100<extra></extra>",
                 )
-                clusters_plot.update_layout(
-                    height=420, margin={"r": 10, "t": 12, "l": 8, "b": 150},
+                chart.update_layout(
+                    height=410, margin={"l": 10, "r": 12, "t": 12, "b": 155},
                     paper_bgcolor=palette["surface"], plot_bgcolor=palette["surface"],
                     font={"color": palette["ink"], "size": 11},
-                    xaxis={"type": "category", "tickangle": -45,
-                           "tickmode": "array",
+                    xaxis={"type": "category", "tickangle": -45, "tickmode": "array",
                            "tickvals": cluster_summary["codigo"].tolist(),
-                           "ticktext": nomes_perfis,
-                           "tickfont": {"size": 9}, "automargin": True},
+                           "ticktext": nomes_perfis, "tickfont": {"size": 9}, "automargin": True},
                     yaxis={"range": [0, 100], "gridcolor": palette["line"]},
                     legend={"orientation": "h", "y": -0.35, "font": {"size": 10}},
                 )
-                st.plotly_chart(
-                    clusters_plot, width="stretch", config={"displayModeBar": False}
-                )
-
+                st.plotly_chart(chart, width="stretch", config={"displayModeBar": False})
     if real_v2:
-        st.caption("**Estilos dos distritos escolhidos:** " + " · ".join(
+        st.caption("**Perfis de Distrito analisados:** " + " · ".join(
             selected_cluster_descriptions(scored, selected)
         ))
-        st.caption(
-            "As barras mostram quanto, em média, os distritos de cada estilo "
-            "combinam com suas preferências. Não representam uma nota de qualidade de vida."
-        )
+        st.caption("Aderência representa afinidade com preferências, não qualidade absoluta de vida.")
 
-if real_v2:
-    st.caption("Quer saber de onde vêm as informações? Consulte a página Fontes.")
-else:
-    st.caption("Você está visualizando informações de exemplo.")
+st.caption("Saiba mais sobre indicadores e limitações na página Fontes.")
