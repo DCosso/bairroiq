@@ -1,0 +1,149 @@
+/* Atlas Sampa V4: tamanho integral do mapa, contraste e tabelas responsivas. */
+:root {
+  --atlas-table-bg: var(--surface, #0b1525);
+  --atlas-table-ink: var(--ink, #f6f8fc);
+  --atlas-table-line: var(--line, #344763);
+}
+
+/* Tabelas nativas (Streamlit/Pandas Styler) em todas as páginas. */
+[data-testid="stTable"], [data-testid="stDataFrame"],
+[data-testid="stDataEditor"] {
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  border: 1px solid var(--atlas-table-line) !important;
+  border-radius: 12px !important;
+  background: var(--atlas-table-bg) !important;
+}
+[data-testid="stTable"] table, [data-testid="stTable"] thead,
+[data-testid="stTable"] tbody, [data-testid="stTable"] tr,
+[data-testid="stTable"] th, [data-testid="stTable"] td,
+table.dataframe, table.dataframe thead, table.dataframe tbody,
+table.dataframe th, table.dataframe td {
+  color: var(--atlas-table-ink) !important;
+  background: var(--atlas-table-bg) !important;
+  border-color: var(--atlas-table-line) !important;
+}
+[data-testid="stTable"] th, table.dataframe th { font-weight: 750 !important; }
+[data-testid="stTable"] th, [data-testid="stTable"] td {
+  padding: .6rem .75rem !important; min-width: 100px;
+  border-bottom: 1px solid var(--atlas-table-line) !important;
+}
+
+/* Componente de tabela usado nas comparações: acessível e consistente. */
+.atlas-data-table-wrap {
+  overflow-x: auto; width: 100%; max-width: 100%;
+  border: 1px solid var(--atlas-table-line); border-radius: 12px;
+  background: var(--atlas-table-bg); color: var(--atlas-table-ink);
+  scrollbar-width: thin;
+}
+.atlas-data-table {
+  width: 100%; border-collapse: separate; border-spacing: 0;
+  min-width: 680px; font-variant-numeric: tabular-nums;
+  font-size: .93rem; color: var(--atlas-table-ink);
+}
+.atlas-data-table th, .atlas-data-table td {
+  padding: .85rem .9rem; text-align: left;
+  vertical-align: middle; color: var(--atlas-table-ink) !important;
+  border-bottom: 1px solid var(--atlas-table-line) !important;
+  background: var(--atlas-table-bg) !important;
+}
+.atlas-data-table thead th {
+  position: sticky; top: 0; z-index: 1; font-weight: 800;
+  background: var(--atlas-table-bg) !important;
+  white-space: nowrap;
+}
+.atlas-data-table tbody tr:last-child td { border-bottom: none !important; }
+.atlas-data-table tbody tr:hover td {
+  box-shadow: inset 0 0 0 999px rgba(89, 151, 209, .09);
+}
+.atlas-data-table td.num { text-align: right; white-space: nowrap; }
+.atlas-data-table td.label { font-weight: 650; min-width: 135px; }
+.atlas-data-table-wrap:focus-visible { outline: 3px solid #569bdf; outline-offset: 2px; }
+
+/* Corrige botões, chips e textos escuros sobre fundos escuros na comparação. */
+body:has(.st-key-comparison-map-card) [data-testid="stButton"] button {
+  background: #235a8c !important;
+  color: #ffffff !important;
+  border: 1px solid #6298c4 !important;
+  min-height: 44px !important; opacity: 1 !important;
+}
+body:has(.st-key-comparison-map-card) [data-testid="stButton"] button *,
+body:has(.st-key-comparison-map-card) [data-testid="stMultiSelect"] [data-baseweb="tag"] * {
+  color: #ffffff !important; opacity: 1 !important;
+}
+body:has(.st-key-comparison-map-card) [data-testid="stButton"] button:hover {
+  background: #2c73aa !important; border-color: #a8d4f3 !important;
+}
+
+/* Desktop: altura comum para mapa e painel de personalização. */
+@media screen and (min-width: 901px) {
+  body:has(.st-key-startup-map) {
+    --atlas-home-height: clamp(670px, calc(100dvh - 130px), 900px);
+  }
+  body:has(.st-key-startup-map) .st-key-startup-map,
+  body:has(.st-key-startup-map) .st-key-startup-panel {
+    height: var(--atlas-home-height) !important;
+    min-height: var(--atlas-home-height) !important;
+    max-height: var(--atlas-home-height) !important;
+    box-sizing: border-box !important;
+  }
+  body:has(.st-key-startup-map) .st-key-startup-map {
+    display: flex !important; flex-direction: column !important;
+    overflow: hidden !important;
+    padding: .5rem !important;
+  }
+  body:has(.st-key-startup-map) .st-key-startup-panel {
+    overflow-y: auto !important; overflow-x: hidden !important;
+  }
+  body:has(.st-key-startup-map) .st-key-startup-map > [data-testid="stVerticalBlock"] {
+    flex: 1 1 auto !important; min-height: 0 !important;
+  }
+  body:has(.st-key-startup-map) .st-key-startup-map [data-testid="stPlotlyChart"] {
+    height: calc(var(--atlas-home-height) - 84px) !important;
+    min-height: calc(var(--atlas-home-height) - 84px) !important;
+    max-height: calc(var(--atlas-home-height) - 84px) !important;
+    overflow: hidden !important;
+  }
+  body:has(.st-key-startup-map) .st-key-startup-map [data-testid="stPlotlyChart"] > div,
+  body:has(.st-key-startup-map) .st-key-startup-map .js-plotly-plot,
+  body:has(.st-key-startup-map) .st-key-startup-map .plot-container,
+  body:has(.st-key-startup-map) .st-key-startup-map .svg-container {
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: none !important;
+  }
+}
+@media screen and (max-width: 900px) {
+  body:has(.st-key-startup-map) .st-key-startup-map,
+  body:has(.st-key-startup-map) .st-key-startup-panel {
+    height: auto !important; min-height: 0 !important;
+    max-height: none !important; overflow: visible !important;
+  }
+  body:has(.st-key-startup-map) .st-key-startup-map [data-testid="stPlotlyChart"] {
+    min-height: 320px !important; height: 340px !important;
+    max-height: none !important;
+  }
+  body:has(.st-key-startup-map) .st-key-startup-map [data-testid="stPlotlyChart"] > div,
+  body:has(.st-key-startup-map) .st-key-startup-map .plot-container,
+  body:has(.st-key-startup-map) .st-key-startup-map .svg-container {
+    height: 340px !important; min-height: 320px !important;
+  }
+  .atlas-data-table { min-width: 600px; font-size: .86rem; }
+  .atlas-data-table th, .atlas-data-table td { padding: .66rem .75rem; }
+}
+
+/* Todos os 10 chips da comparação devem permanecer visíveis. */
+body:has(.st-key-comparison-map-card) [data-testid="stMultiSelect"] [data-baseweb="value-container"],
+body:has(.st-key-comparison-map-card) [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
+  height: auto !important;
+  min-height: 48px !important;
+  max-height: none !important;
+  flex-wrap: wrap !important;
+  overflow: visible !important;
+}
+body:has(.st-key-comparison-map-card) [data-testid="stMultiSelect"] [data-baseweb="tag"] {
+  max-width: 100% !important;
+  font-size: .92rem !important;
+  background: #235a8c !important;
+  border: 1px solid #659bd0 !important;
+}

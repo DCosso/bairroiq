@@ -22,6 +22,8 @@ from bairroiq.comparison_v2 import (
 from bairroiq.map_data import DistrictMapService
 from bairroiq.provider import load_metrics
 from bairroiq.ranking_ux import ranking_filtrado, selecionar_comparacao, top10_filtrado
+from bairroiq.table_ux import render_responsive_table
+from bairroiq.selection_ux import reconcile_selection
 from bairroiq.scoring import SCENARIO_SCORER
 from bairroiq.ui import SCENARIO_DEFAULTS, render_header, theme_palette
 from bairroiq.ux_labels import nome_perfil
@@ -165,6 +167,7 @@ eligible = ranking_filtrado(
     scored,
     busca=st.session_state.get("map-search", ""),
     filtros=st.session_state.get("map-quick-filters", []),
+    perfil=st.session_state.get("home-profile-filter", "Todos os perfis"),
 )
 if eligible.empty:
     st.info("Nenhum distrito atende aos filtros selecionados. Volte à tela Explorar e revise a busca ou os interesses.")
@@ -175,11 +178,14 @@ if "comparison-neighborhoods-widget" not in st.session_state:
     st.session_state["comparison-neighborhoods-widget"] = list(
         st.session_state.get("comparison_neighborhoods", st.session_state.get("selected-neighborhoods", []))
     )
-# Streamlit exige limpar valores obsoletos antes de instanciar o widget.
-st.session_state["comparison-neighborhoods-widget"] = [
-    name for name in dict.fromkeys(st.session_state["comparison-neighborhoods-widget"])
-    if name in options
-][:10]
+# A barra superior da versão anterior sincronizava apenas cinco nomes.
+# Se ela foi a origem da seleção, restauramos até dez antes de montar o widget.
+# Não restaura nomes fora do conjunto elegível pelos filtros ativos.
+header_selection = st.session_state.get("selected-neighborhoods", [])
+widget_selection = st.session_state.get("comparison-neighborhoods-widget", [])
+st.session_state["comparison-neighborhoods-widget"] = reconcile_selection(
+    header_selection, widget_selection, options, max_items=10,
+)
 
 selection_col, focus_col = st.columns([1.4, 1], gap="large")
 with selection_col:
@@ -309,17 +315,18 @@ st.markdown("### Resumo por indicador")
 cols = ["neighborhood", *dimensions.values(), "priority_score"]
 table = comparison.loc[:, cols].copy()
 table.columns = ["Distrito", *dimensions.keys(), "Aderência"]
-st.dataframe(
-    table, hide_index=True, width="stretch",
-    column_config={col: st.column_config.NumberColumn(format="%.1f") for col in table.columns if col != "Distrito"},
-)
+render_responsive_table(table, precision=1, label="Resumo por indicador")
 
 if real_v2:
     with st.expander("Mais detalhes sobre os distritos", expanded=False):
         descriptive = comparison[["neighborhood", "cluster", "densidade_hab_km2", "robberies_per_1000"]].copy()
         descriptive.columns = ["Distrito", "Perfil de Distrito", "Densidade (hab./km²)", "Roubos por 1.000 hab."]
         descriptive["Perfil de Distrito"] = descriptive["Perfil de Distrito"].map(nome_perfil)
-        st.dataframe(descriptive, hide_index=True, width="stretch")
+        render_responsive_table(
+            descriptive, precision=1,
+            column_precision={"Densidade (hab./km²)": 0, "Roubos por 1.000 hab.": 2},
+            label="Detalhes territoriais",
+        )
 
 with st.expander("Gráficos: indicadores, comparações e Perfis de Distrito", expanded=False):
     st.session_state.setdefault("comparison-highlight-neighborhood", "Nenhum")
